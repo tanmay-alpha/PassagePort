@@ -23,6 +23,15 @@ def create_db_engine(settings: Settings) -> Engine:
             cur.close()
 
     else:
-        engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+        # prepare_threshold=None: managed Postgres is usually reached through a transaction-mode
+        # pooler (PgBouncer), which does not support server-side prepared statements.
+        engine = create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=5,
+            pool_recycle=300,
+            connect_args={"prepare_threshold": None},
+        )
     metadata.create_all(engine)
     return engine

@@ -13,7 +13,8 @@ ALLOWED_EXTENSIONS: tuple[str, ...] = (".pdf", ".txt", ".md", ".docx")
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PP_", env_file=".env", extra="ignore")
+    # env_ignore_empty: `PP_STATIC_DIR=` must mean "unset", not Path("."), which would serve the CWD.
+    model_config = SettingsConfigDict(env_prefix="PP_", env_file=".env", extra="ignore", env_ignore_empty=True)
 
     # --- storage -----------------------------------------------------------
     data_dir: Path = Path("./data")
@@ -92,9 +93,14 @@ class Settings(BaseSettings):
 
     @property
     def resolved_database_url(self) -> str:
-        if self.database_url:
-            return self.database_url
-        return f"sqlite:///{(self.data_dir / 'passageport.db').as_posix()}"
+        """PP_DATABASE_URL (``postgres://`` URLs are normalized to the psycopg driver), else SQLite."""
+        url = self.database_url
+        if not url:
+            return f"sqlite:///{(self.data_dir / 'passageport.db').as_posix()}"
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix) :]
+        return url
 
     @property
     def max_upload_bytes(self) -> int:
