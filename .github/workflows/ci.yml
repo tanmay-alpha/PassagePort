@@ -1,0 +1,279 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # `uv run` must use the committed lock file as-is and never re-resolve.
+  UV_FROZEN: "1"
+
+jobs:
+  backend:
+    name: Backend (lint, types, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Deterministic embedder, no reranker: the suite needs no model download.
+      PP_EMBEDDING_BACKEND: hashing
+      PP_RERANKER_BACKEND: none
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # setup-uv publishes no moving major tag, so it is pinned to an exact release.
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev --extra postgres
+      - name: Ruff (lint)
+        run: uv run ruff check .
+      - name: Ruff (format)
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy passageport
+      - name: Pytest
+        run: uv run pytest --cov=passageport --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  backend-postgres:
+    name: Backend tests on PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Throw-away credentials for a database that exists only for this job.
+          POSTGRES_USER: passageport
+          POSTGRES_PASSWORD: passageport
+          POSTGRES_DB: passageport_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U passageport -d passageport_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PP_EMBEDDING_BACKEND: hashing
+      PP_RERANKER_BACKEND: none
+      PP_TEST_DATABASE_URL: postgresql+psycopg://passageport:passageport@localhost:5432/passageport_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev --extra postgres
+      - name: Pytest against PostgreSQL
+        run: uv run pytest
+      - name: Check that the suite really used PostgreSQL
+        env:
+          PGPASSWORD: passageport
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          # A green run that silently fell back to SQLite would prove nothing about PostgreSQL.
+          commits="$(docker exec -e PGPASSWORD "$POSTGRES_CONTAINER" \
+            psql -U passageport -d passageport_test -tAc \
+            "SELECT xact_commit FROM pg_stat_database WHERE datname = 'passageport_test'")"
+          echo "transactions committed in passageport_test: $commits"
+          if ! [ "${commits:-0}" -ge 20 ]; then
+            echo "::error::The test-suite did not use the PostgreSQL service (PP_TEST_DATABASE_URL was ignored)."
+            exit 1
+          fi
+
+  frontend:
+    name: Frontend (lint, types, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Vitest
+        run: npm test -- --run
+      - run: npm run build
+
+  mcp-server:
+    name: MCP server (types, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen --extra dev
+      - name: Build the frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium firefox
+      # The suite starts its own backend (e2e/server.mjs): uvicorn serving frontend/dist with the
+      # hashing embedder and a temporary data directory.
+      - name: Run Playwright
+        working-directory: e2e
+        run: npx playwright test
+      - name: Upload Playwright report and traces
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker:
+    name: Docker image (build, run, smoke test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: passageport:ci
+          # The model download is exercised by the weekly "Models" workflow, not on every push.
+          build-args: |
+            PRELOAD_MODELS=0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start container
+        run: |
+          docker run --detach --name passageport \
+            --publish 127.0.0.1:8000:8000 \
+            --env PP_EMBEDDING_BACKEND=hashing \
+            --env PP_RERANKER_BACKEND=none \
+            passageport:ci
+      - name: Wait for /api/health
+        run: bash scripts/wait-for-http.sh http://127.0.0.1:8000/api/health 90
+      - name: Container runs as a non-root user
+        run: |
+          uid="$(docker exec passageport id -u)"
+          echo "container uid: $uid"
+          test "$uid" != "0"
+      - name: Smoke test (create collection, upload, index, search, resolve citation)
+        run: bash scripts/smoke.sh http://127.0.0.1:8000
+      - name: Container logs
+        if: ${{ failure() }}
+        run: docker logs passageport
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Export the locked runtime requirements
+        working-directory: backend
+        run: >-
+          uv export --frozen --no-dev --extra postgres --no-emit-project
+          --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+      # Audits exactly the pinned, hashed versions that go into the image. Any known
+      # vulnerability fails the job (PyPI advisories carry no severity to filter on).
+      - name: pip-audit (backend)
+        run: >-
+          uvx pip-audit --requirement "$RUNNER_TEMP/requirements.txt"
+          --require-hashes --disable-pip --progress-spinner off
+      - name: npm audit (frontend)
+        if: ${{ !cancelled() }}
+        working-directory: frontend
+        run: npm audit --audit-level=high
+      - name: npm audit (mcp-server)
+        if: ${{ !cancelled() }}
+        working-directory: mcp-server
+        run: npm audit --audit-level=high

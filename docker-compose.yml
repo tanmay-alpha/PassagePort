@@ -1,0 +1,85 @@
+# PassagePort on one machine.
+#
+#   docker compose up --build            # http://localhost:8000, SQLite in a named volume
+#   docker compose --profile postgres up # same, plus a PostgreSQL container (see below)
+#
+# Settings come from an optional `.env` file next to this file (copy `.env.example`).
+
+name: passageport
+
+services:
+  passageport:
+    build:
+      context: .
+      args:
+        # 1 bakes the default models into the image (starts offline); 0 downloads on first use.
+        PRELOAD_MODELS: ${PRELOAD_MODELS:-1}
+    image: passageport:local
+    # Published on the loopback interface ONLY. The default PP_AUTH_MODE=local has no login:
+    # whoever can reach the port is the single implicit user. To expose PassagePort to other
+    # machines, first set PP_AUTH_MODE=accounts (and a PP_SIGNUP_CODE) in `.env`, put it behind
+    # a TLS-terminating reverse proxy, and only then change this binding.
+    ports:
+      - "127.0.0.1:${PASSAGEPORT_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Container port and paths are fixed here so a `.env` written for local development
+      # (relative paths) cannot point the database outside the volume.
+      PORT: "8000"
+      PP_DATA_DIR: /data
+      PP_STATIC_DIR: /app/static
+      PP_MODEL_CACHE_DIR: /models
+      # local mode serves only requests whose Host header is one of these names.
+      PP_LOCAL_ALLOWED_HOSTS: '${PP_LOCAL_ALLOWED_HOSTS:-["localhost","127.0.0.1","[::1]"]}'
+    volumes:
+      - passageport-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false # only waited for when the `postgres` profile is active
+    restart: unless-stopped
+    init: true
+    # The process runs as a non-root user and needs no Linux capabilities.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # Optional PostgreSQL instead of SQLite. Activate the profile AND point the app at it in `.env`:
+  #
+  #   PP_DATABASE_URL=postgresql://passageport:<POSTGRES_PASSWORD>@postgres:5432/passageport
+  #   PP_BLOB_BACKEND=db        # optional: keep uploaded files in PostgreSQL too
+  #
+  # The database is reachable only from the compose network; no port is published.
+  postgres:
+    image: postgres:17
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: passageport
+      POSTGRES_DB: passageport
+      # Development default. Set POSTGRES_PASSWORD in `.env` for anything you care about.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-passageport}
+    volumes:
+      - passageport-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U passageport -d passageport"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  passageport-data:
+  passageport-postgres:

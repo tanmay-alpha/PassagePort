@@ -1,0 +1,83 @@
+name: Models
+
+# Runs the tests marked `models` with the real embedding and reranker models, and builds the
+# image with the models baked in. Kept out of the per-push CI because it downloads several
+# hundred megabytes; the weekly schedule catches upstream model or hub changes.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  model-tests:
+    name: Tests with real models
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # setup-uv publishes no moving major tag, so it is pinned to an exact release.
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+      # Models are downloaded fresh on purpose: that download is what this workflow verifies.
+      # `-m models` overrides the default `-m "not models"`; pytest fails if nothing is selected.
+      - name: Pytest (models marker)
+        run: uv run pytest -m models -v
+
+  preloaded-image:
+    name: Image with preloaded models starts offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      # scripts/preload_models.py downloads the default models during the build and fails the
+      # build unless they load again with the Hugging Face hub offline.
+      - name: Build image with PRELOAD_MODELS=1
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: passageport:models
+          build-args: |
+            PRELOAD_MODELS=1
+      - name: Start container without network access
+        run: |
+          docker run --detach --name passageport --network none passageport:models
+      - name: Smoke test inside the offline container
+        run: |
+          for _ in $(seq 1 60); do
+            if docker exec passageport python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "${ready:-0}" = "1"
+          # Loads both models through the application's registry with no network available.
+          docker exec passageport python /app/scripts/preload_models.py --verify-offline
+      - name: Container logs
+        if: ${{ failure() }}
+        run: docker logs passageport
