@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     max_upload_mb: float = 25
     max_pages: int = 1500
     max_document_chars: int = 4_000_000
+    max_collections_per_user: int = 100
     max_documents_per_user: int = 300
     max_storage_mb_per_user: int = 500
     max_query_chars: int = 1000
