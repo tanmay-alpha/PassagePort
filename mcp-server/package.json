@@ -1,33 +1,43 @@
 {
-  "name": "@simple-kb/mcp-server",
-  "version": "0.1.0",
-  "description": "MCP server for Simple Knowledge Base - search and fetch documents",
+  "name": "passageport-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for PassagePort: search document collections and retrieve cited passages, pages and evidence-backed answers.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "simple-kb-mcp": "dist/index.js"
+    "passageport-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",
-    "inspect:dev": "npx @modelcontextprotocol/inspector npx tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
   },
-  "keywords": ["mcp", "model-context-protocol", "knowledge-base", "search", "lancedb"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "passageport",
+    "document-search",
+    "citations"
+  ],
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "zod": "^3.24.0"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "@types/node": "^24.10.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
