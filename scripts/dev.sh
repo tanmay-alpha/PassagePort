@@ -10,7 +10,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_PORT="${BACKEND_PORT:-8000}"
 
 for tool in uv node npm; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -28,7 +27,8 @@ if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
   (cd "$ROOT/frontend" && npm ci)
 fi
 
-backend_args=(passageport.main:app --reload --reload-dir passageport --host 127.0.0.1 --port "$BACKEND_PORT")
+# Port 8000 is fixed: the Vite dev server proxies /api to 127.0.0.1:8000 (frontend/vite.config.ts).
+backend_args=(passageport.main:app --reload --reload-dir passageport --host 127.0.0.1 --port 8000)
 if [[ -f "$ROOT/.env" ]]; then
   backend_args+=(--env-file "$ROOT/.env")
 fi
@@ -50,7 +50,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "[dev] backend   http://127.0.0.1:$BACKEND_PORT  (API docs: /api/docs)"
+echo "[dev] backend   http://127.0.0.1:8000  (API docs: /api/docs)"
 echo "[dev] frontend  http://127.0.0.1:5173"
 echo "[dev] Ctrl+C stops both"
 

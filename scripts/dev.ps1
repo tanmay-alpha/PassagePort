@@ -13,11 +13,6 @@
     powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 #>
 
-[CmdletBinding()]
-param(
-    [int]$BackendPort = 8000
-)
-
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -51,10 +46,11 @@ if (-not (Test-Path (Join-Path $frontendDir 'node_modules'))) {
     Invoke-In $frontendDir { npm ci }
 }
 
+# Port 8000 is fixed: the Vite dev server proxies /api to 127.0.0.1:8000 (frontend/vite.config.ts).
 $backendArgs = @(
     'run', 'uvicorn', 'passageport.main:app',
     '--reload', '--reload-dir', 'passageport',
-    '--host', '127.0.0.1', '--port', "$BackendPort"
+    '--host', '127.0.0.1', '--port', '8000'
 )
 $envFile = Join-Path $root '.env'
 if (Test-Path $envFile) {
@@ -62,7 +58,7 @@ if (Test-Path $envFile) {
     $backendArgs += @('--env-file', "`"$envFile`"")
 }
 
-Write-Host "[dev] backend   http://127.0.0.1:$BackendPort  (API docs: /api/docs)"
+Write-Host '[dev] backend   http://127.0.0.1:8000  (API docs: /api/docs)'
 Write-Host '[dev] frontend  http://127.0.0.1:5173'
 Write-Host '[dev] Ctrl+C stops both'
 

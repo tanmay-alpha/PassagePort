@@ -8,6 +8,8 @@
 !backend/passageport/**
 !frontend/**
 !scripts/preload_models.py
+!LICENSE
+!NOTICE.md
 
 # Re-exclude generated files inside the allowed directories.
 **/__pycache__

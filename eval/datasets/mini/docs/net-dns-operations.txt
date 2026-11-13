@@ -1,0 +1,47 @@
+Operating DNS for the Platform Team
+
+This handbook describes how we run name service for internal and public zones. It assumes the Quillname resolver and the Stanza authoritative server that we deploy, but the reasoning applies to any standards-following implementation. Read it before taking the on-call rotation for name service.
+
+Recursive and authoritative roles
+
+Two very different jobs hide behind the word DNS server. An authoritative server holds the actual records for a zone and answers only for names it owns; it never goes looking elsewhere. A recursive resolver holds no zone data of its own. It accepts a question from a client, walks the hierarchy from the root through the top-level domain down to the authoritative servers of the target zone, and returns the final answer while remembering what it learned on the way.
+
+We keep the roles on separate machines. A server that does both tends to answer from its cache for zones it is supposed to own, and an open recursive service exposed to the internet can be abused to amplify traffic toward a victim. Our resolvers accept queries only from internal address ranges, and our authoritative servers have recursion switched off.
+
+Record types
+
+The record types we handle every day are few. An A record maps a name to an IPv4 address and an AAAA record maps it to an IPv6 address. A CNAME declares that one name is an alias of another, and the resolver restarts the lookup with the target name. MX records list mail exchangers with a preference number, where the lowest number is tried first. TXT records carry free text and are used mainly for domain ownership proofs and mail sender policy. NS records delegate a zone to its servers, SRV records publish the host and port of a service, and PTR records map an address back to a name. Every zone has exactly one SOA record that names the primary server, the responsible mailbox, a serial number and several timers.
+
+TTL and caching
+
+Every record carries a time to live in seconds. A resolver may reuse the answer until that time runs out, and then must ask again. The TTL is therefore the trade-off between load on the authoritative servers and the speed at which a change becomes visible. We publish most records with 3600 seconds and lower the value to 300 seconds a full day before a planned migration, so that old answers have drained from caches by the time the address changes.
+
+Resolvers apply their own bounds. Quillname clamps any TTL above max_cache_ttl_s, which we leave at 86400, and raises absurdly small values to min_cache_ttl_s, set to 5. When all authoritative servers for a zone are unreachable, the resolver may keep answering from expired entries for serve_stale_window_s, 3600 seconds in our configuration, which has turned several provider outages into non-events.
+
+NXDOMAIN versus SERVFAIL
+
+These two responses are constantly confused in incident channels, and they mean opposite things. NXDOMAIN, response code 3, is a definite answer from the authoritative side: the name does not exist. Nothing is broken; someone asked for a name that was never created, was deleted, or was misspelled. SERVFAIL, response code 2, is the resolver admitting that it could not obtain any answer: the authoritative servers timed out, refused the query, returned garbage, or failed signature validation. A burst of SERVFAIL for one zone almost always indicates trouble with that zone's servers or its delegation, while SERVFAIL for everything points to the resolver itself or its upstream connectivity.
+
+A related trap is the empty answer, often written NODATA: the response code says success, but the answer section is empty because the name exists without a record of the requested type. Monitoring that checks only the response code will report such lookups as healthy.
+
+Negative caching
+
+Resolvers also remember that a name does not exist. The duration is taken from the SOA record of the zone: the smaller of the SOA record's own TTL and its last field, the minimum. Quillname additionally limits it with neg_cache_cap_s, default 900. This matters during launches. If a client asks for a new name a few seconds before the record is published, the resolver stores the denial, and that client population keeps failing for up to fifteen minutes although the record now exists. Create records first and announce names afterwards.
+
+Zone transfers
+
+Secondary servers obtain zone contents from the primary by transfer. A full transfer, AXFR, copies every record; an incremental transfer, IXFR, sends only the differences since the serial number the secondary already has. The primary sends a NOTIFY message after each change so secondaries do not have to wait for the refresh timer in the SOA record. A secondary that cannot reach the primary keeps serving its copy until the expire timer runs out, 1209600 seconds in our zones, and then stops answering for the zone altogether.
+
+Transfers expose the full contents of a zone and must be restricted. Stanza permits them only to addresses listed in xfer_allow_list and only when the request is signed with a shared TSIG key. Transfers always run over TCP on port 53, so a firewall that passes only UDP will let ordinary queries through while quietly breaking replication.
+
+Common misconfigurations
+
+Forgetting to raise the serial number. Secondaries compare serials and ignore a zone whose serial has not increased, so the edit is live on the primary and invisible everywhere else. Our zonelint pre-commit check rejects a change that leaves the serial untouched.
+
+Lame delegation. The parent zone lists a server in its NS records that does not actually answer authoritatively for the child zone. Resolvers waste time on it and intermittently return failures. Compare the NS set at the parent with the NS set inside the zone after every provider change.
+
+A CNAME at the zone apex. An alias may not coexist with other records at the same name, and the apex always holds SOA and NS records, so an alias there is invalid and breaks mail delivery in confusing ways. Use address records at the apex instead.
+
+Stale glue. When a name server's name lies inside the zone it serves, the parent must publish its address as glue. Renumbering the server without updating the glue leaves resolvers chasing the old address.
+
+Oversized responses. Answers larger than the advertised UDP buffer, 1232 bytes in our setup, are truncated and retried over TCP. Networks that block TCP port 53 make large record sets fail while small ones keep working.

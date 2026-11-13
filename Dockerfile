@@ -63,6 +63,8 @@ COPY --from=backend-deps /app/.venv /app/.venv
 COPY backend/passageport /app/backend/passageport
 COPY --from=frontend /src/frontend/dist /app/static
 COPY scripts/preload_models.py /app/scripts/preload_models.py
+# The MIT license requires the copyright and permission notice to accompany every copy.
+COPY LICENSE NOTICE.md /app/
 
 USER 10001:10001
 

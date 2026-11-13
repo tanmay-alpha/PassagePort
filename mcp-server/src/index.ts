@@ -11,6 +11,8 @@ import { PassagePortClient, PassagePortError } from "./api-client.js";
 import { ConfigError, SERVER_NAME, SERVER_VERSION, loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 
+const PROBE_TIMEOUT_MS = 3000;
+
 async function main(): Promise<void> {
   const config = loadConfig();
   console.error(`${SERVER_NAME} MCP server v${SERVER_VERSION}`);
@@ -23,17 +25,22 @@ async function main(): Promise<void> {
     timeoutMs: config.timeoutMs,
   });
 
-  // The backend may be started after the MCP client, so an unreachable API is not fatal here;
-  // each tool call reports the problem itself.
-  try {
-    await client.health();
-    console.error("API reachable.");
-  } catch (error) {
-    const reason = error instanceof PassagePortError ? error.message : "unknown error";
-    console.error(`Warning: API not reachable yet: ${reason}`);
-  }
-
   await createServer(client).connect(new StdioServerTransport());
+
+  // Diagnostic only, and deliberately not awaited: MCP initialization must never wait for the
+  // backend, which may be slow, stalled or started later. Tool calls report failures themselves.
+  const probe = new PassagePortClient({
+    baseUrl: config.apiUrl,
+    token: config.apiToken,
+    timeoutMs: Math.min(config.timeoutMs, PROBE_TIMEOUT_MS),
+  });
+  probe.health().then(
+    () => console.error("API reachable."),
+    (error: unknown) => {
+      const reason = error instanceof PassagePortError ? error.message : "unknown error";
+      console.error(`Warning: API not reachable yet: ${reason}`);
+    },
+  );
 }
 
 main().catch((error: unknown) => {
