@@ -27,7 +27,7 @@ postgres = ["psycopg[binary]>=3.2"]
 # Upstream's original models (PyTorch). Only needed for the baseline benchmark or by choice.
 heavy = ["sentence-transformers>=3.3", "torch>=2.5"]
 # Reproduces the upstream retrieval pipeline in the evaluation harness.
-baseline = ["lancedb>=0.19", "sentence-transformers>=3.3", "torch>=2.5"]
+baseline = ["lancedb>=0.19", "sentence-transformers>=3.3", "torch>=2.5", "loguru>=0.7.3"]
 dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",

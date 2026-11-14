@@ -91,7 +91,7 @@ def parse_cited_answer(reply: str, valid_refs: Collection[int]) -> list[AnswerSe
     Returns ``None`` when the model declared the evidence insufficient. Citation numbers outside
     ``valid_refs`` are discarded; a segment that keeps no citation gets ``supported=False``.
     """
-    if INSUFFICIENT in reply:
+    if reply.strip().strip("\"'“”‘’").rstrip(" \t\r\n.!?,;:\"'“”‘’") == INSUFFICIENT:
         return None
     text = _TRAILING_CITATIONS.sub(lambda m: f"{m.group(2)}{m.group(1)}", reply.strip())
     segments: list[AnswerSegment] = []

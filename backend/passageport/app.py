@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -11,9 +12,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from passageport import __version__
+from passageport.api.middleware import install_middleware
+from passageport.api.static import mount_frontend
 from passageport.config import Settings, get_settings
 from passageport.db.engine import create_db_engine
 from passageport.errors import ApiError
+from passageport.ingest.worker import start_worker, stop_worker
 
 log = logging.getLogger("passageport")
 
@@ -39,10 +43,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        from passageport.ingest.worker import start_worker, stop_worker
-
-        start_worker(app.state.engine, settings)  # also re-queues jobs orphaned by a crash
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        start_worker(app.state.engine, settings)
         yield
         stop_worker()
         app.state.engine.dispose()
@@ -74,17 +76,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(Exception)
     async def _unhandled(_request: Request, exc: Exception) -> JSONResponse:
         # Log the type only: exception messages can contain document text or paths.
-        log.error("unhandled error: %s", type(exc).__name__, exc_info=settings.log_level == "DEBUG")
+        log.error("unhandled error: %s", type(exc).__name__)
         return _error(500, "internal_error", "Something went wrong on the server.")
-
-    from passageport.api.middleware import install_middleware
 
     install_middleware(app, settings)
 
     for module_name in ROUTERS:
         app.include_router(importlib.import_module(module_name).router)
-
-    from passageport.api.static import mount_frontend
 
     mount_frontend(app, settings)
     return app

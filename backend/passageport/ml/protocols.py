@@ -11,10 +11,16 @@ import numpy as np
 class Embedder(Protocol):
     #: Stable identifier stored with every chunk, e.g. "fastembed:BAAI/bge-small-en-v1.5:384".
     #: Vectors with different versions are never compared.
-    version: str
     backend: str
     model: str
-    dimensions: int
+
+    @property
+    def version(self) -> str:
+        """Stable model identity; implementations may derive it lazily."""
+        ...
+
+    @property
+    def dimensions(self) -> int: ...
 
     def embed_documents(self, texts: list[str]) -> np.ndarray:
         """(n, dimensions) float32, L2-normalized."""

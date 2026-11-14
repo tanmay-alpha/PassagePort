@@ -8,9 +8,11 @@ import re
 import pytest
 from conftest import CSRF_HEADERS, build_pdf, create_collection, upload_file
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from passageport.api import middleware
 from passageport.api.static import resolve_static_file
+from passageport.config import Settings
 from passageport.db import repos
 
 # --------------------------------------------------------------------------- host guard (local mode)
@@ -501,7 +503,10 @@ def test_error_bodies_never_contain_paths_or_internals(
         _assert_clean_error(response, tmp_path)
 
 
-def test_unhandled_exceptions_are_generic_500s(app, tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("log_level", ["WARNING", "DEBUG"])
+def test_unhandled_exceptions_are_generic_500s(app, tmp_path, monkeypatch, caplog, log_level):
+    app.state.settings.log_level = log_level
+
     def explode(*_args, **_kwargs):
         raise RuntimeError(f"cannot open {tmp_path / 'data' / 'passageport.db'}: secret detail")
 
@@ -561,3 +566,19 @@ def test_health_reveals_nothing_and_needs_no_session(accounts):
     response = accounts.client().get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.parametrize("field", ["embed_batch_size", "job_lease_seconds", "job_max_attempts"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_nonpositive_worker_settings_fail_before_the_server_starts(field, value):
+    with pytest.raises(ValidationError) as caught:
+        Settings(**{field: value})
+    assert caught.value.errors()[0]["loc"] == (field,)
+
+
+def test_worker_and_collection_defaults_are_usable():
+    settings = Settings()
+    assert settings.max_collections_per_user == 100
+    assert settings.embed_batch_size > 0
+    assert settings.job_lease_seconds > 0
+    assert settings.job_max_attempts > 0

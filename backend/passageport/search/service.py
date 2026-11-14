@@ -58,6 +58,7 @@ NOTICE_NO_MATCH = "No passage matches this query."
 NOTICE_LOW_CONFIDENCE = (
     "No passage clearly matches this query. The results shown are the closest text found and may not be relevant."
 )
+NOTICE_INVALID_RERANK = "The reranker returned invalid scores; the original retrieval order is shown."
 
 FULL_KEYWORD_COVERAGE = 0.999
 
@@ -378,18 +379,22 @@ def retrieve(
     else:
         ranking = result.keyword if params.mode == "keyword" else result.semantic
 
+    notices: list[str] = []
     if params.rerank and ranking:
         reranker = reranker or registry.get_reranker()
         if reranker is not None:
             started = time.perf_counter()
             pool = ranking[: params.rerank_candidates]
             scores = reranker.score(query, [index.chunks[c.row].text for c in pool])
-            for entry, score in zip(pool, scores, strict=True):
-                entry.rerank = float(score)
-            result.reranked = sorted(pool, key=lambda c: (-(c.rerank or 0.0), int(index.tiebreak[c.row])))
-            result.reranker_name = f"{reranker.backend}:{reranker.model}"
-            # Passages beyond the re-ranked pool keep their order after it, so top_k may exceed the pool.
-            ranking = result.reranked + ranking[len(pool) :]
+            if len(scores) != len(pool) or not all(np.isfinite(score) for score in scores):
+                notices.append(NOTICE_INVALID_RERANK)
+            else:
+                for entry, score in zip(pool, scores, strict=True):
+                    entry.rerank = float(score)
+                result.reranked = sorted(pool, key=lambda c: (-(c.rerank or 0.0), int(index.tiebreak[c.row])))
+                result.reranker_name = f"{reranker.backend}:{reranker.model}"
+                # Passages beyond the re-ranked pool retain their fused order.
+                ranking = result.reranked + ranking[len(pool) :]
             timings["rerank"] = _ms(started)
 
     result.results = ranking[: params.top_k]
@@ -398,7 +403,6 @@ def retrieve(
         entry.coverage = coverage
         entry.similarity = float(similarities[entry.row]) if similarities is not None else None
     result.confidence = assess(params, result.results, reranked=result.reranked is not None)
-    notices: list[str] = []
     if not rows:
         notices.append(NOTICE_NO_MATCH)
     elif result.low_confidence:

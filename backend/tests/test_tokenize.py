@@ -94,10 +94,39 @@ def test_tokens_keep_the_surface_form_for_highlighting() -> None:
 def test_matched_surfaces_returns_words_as_written() -> None:
     terms = set(query_terms("query max_chunk_tokens"))
     text = "The Queries hit max_chunk_tokens. More queries follow."
-    assert matched_surfaces(text, terms) == ["queries", "max_chunk_tokens", "max", "chunk", "tokens"]
+    assert matched_surfaces(text, terms) == ["Queries", "max_chunk_tokens", "max", "chunk", "tokens"]
     assert matched_surfaces(text, set()) == []
 
 
 def test_very_long_runs_do_not_become_terms() -> None:
     assert tokenize("a" * 100) == []
     assert tokenize("x" * 70 + "_tail") == ["tail"]
+
+
+def test_oversized_compounds_bypass_the_expansion_cache() -> None:
+    from passageport.search.tokenize import MAX_TERM_CHARS, _expand_cached
+
+    _expand_cached.cache_clear()
+    for i in range(100):
+        assert tokenize("x" * (MAX_TERM_CHARS + 1) + f"_{i}_tail")[-1] == "tail"
+    assert _expand_cached.cache_info().currsize == 0
+    tokenize("ordinary")
+    tokenize("ordinary")
+    assert _expand_cached.cache_info().hits == 1
+
+
+@pytest.mark.parametrize(
+    ("source", "query", "expected"),
+    [
+        ("Straße", "strasse", ["Straße"]),
+        ("ＦＵＬＬ－ＷＩＤＴＨ", "full-width", ["ＦＵＬＬ－ＷＩＤＴＨ", "ＦＵＬＬ", "ＷＩＤＴＨ"]),
+        ("Don't don’t", "dont", ["Don't", "don’t"]),
+        ("1.2.3", "1.2.3", ["1.2.3"]),
+        ("maxRetries", "retry", ["maxRetries"]),
+        ("Cafe\u0301 ﬁle", "café file", ["Cafe\u0301", "ﬁle"]),
+    ],
+)
+def test_highlights_are_literal_source_substrings(source: str, query: str, expected: list[str]) -> None:
+    found = matched_surfaces(source, set(query_terms(query)))
+    assert found == expected
+    assert all(term in source and term.lower() in source.lower() for term in found)

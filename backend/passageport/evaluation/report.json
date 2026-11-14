@@ -1,0 +1,160 @@
+{
+  "generated_at": "2026-11-14T12:43:33Z",
+  "git_commit": null,
+  "hardware": "Intel(R) Core(TM) i7-14650HX, 24 threads, 16 GB RAM, CPU only, Windows 11, Python 3.12.13",
+  "command": "uv run python -m passageport.evaluation.run evaluate --datasets mini scifact --max-queries 50 --label 'CPU-light defaults' --out ../eval/results/default.json",
+  "datasets": [
+    {
+      "name": "mini · CPU-light defaults",
+      "description": "Hand-written technical corpus (operating systems, networking, databases, an API spec in two versions, operations, security, a research-style report). A hit is relevant when its chunk overlaps the labelled quote. Small and self-authored: indicative only.",
+      "documents": 14,
+      "chunks": 126,
+      "queries": 58,
+      "embedding_version": "fastembed:BAAI/bge-small-en-v1.5:384",
+      "reranker": "fastembed:Xenova/ms-marco-MiniLM-L-6-v2",
+      "indexing_chunks_per_second": 59.2,
+      "runs": [
+        {
+          "name": "keyword",
+          "recall_at_k": {
+            "1": 0.6293,
+            "5": 0.7414,
+            "10": 0.7759
+          },
+          "precision_at_k": {
+            "1": 0.6379,
+            "5": 0.1517
+          },
+          "mrr": 0.6783,
+          "ndcg_at_10": 0.7017,
+          "latency_ms_p50": 0.67,
+          "latency_ms_p95": 1.09
+        },
+        {
+          "name": "semantic",
+          "recall_at_k": {
+            "1": 0.5603,
+            "5": 0.7759,
+            "10": 0.8621
+          },
+          "precision_at_k": {
+            "1": 0.569,
+            "5": 0.1586
+          },
+          "mrr": 0.6521,
+          "ndcg_at_10": 0.7017,
+          "latency_ms_p50": 5.59,
+          "latency_ms_p95": 14.68
+        },
+        {
+          "name": "hybrid",
+          "recall_at_k": {
+            "1": 0.5948,
+            "5": 0.8448,
+            "10": 0.8621
+          },
+          "precision_at_k": {
+            "1": 0.6034,
+            "5": 0.1724
+          },
+          "mrr": 0.6977,
+          "ndcg_at_10": 0.7383,
+          "latency_ms_p50": 5.29,
+          "latency_ms_p95": 6.77
+        },
+        {
+          "name": "hybrid+rerank",
+          "recall_at_k": {
+            "1": 0.7155,
+            "5": 0.8276,
+            "10": 0.9138
+          },
+          "precision_at_k": {
+            "1": 0.7241,
+            "5": 0.169
+          },
+          "mrr": 0.771,
+          "ndcg_at_10": 0.8044,
+          "latency_ms_p50": 598.12,
+          "latency_ms_p95": 667.46
+        }
+      ]
+    },
+    {
+      "name": "scifact · CPU-light defaults",
+      "description": "BEIR SciFact, test split: scientific claims as queries against 5,183 paper abstracts. Relevance is judged per document; a ranking is reduced to its distinct documents.",
+      "documents": 5183,
+      "chunks": 12684,
+      "queries": 50,
+      "embedding_version": "fastembed:BAAI/bge-small-en-v1.5:384",
+      "reranker": "fastembed:Xenova/ms-marco-MiniLM-L-6-v2",
+      "indexing_chunks_per_second": 45.2,
+      "runs": [
+        {
+          "name": "keyword",
+          "recall_at_k": {
+            "1": 0.6,
+            "5": 0.79,
+            "10": 0.834
+          },
+          "precision_at_k": {
+            "1": 0.62,
+            "5": 0.172
+          },
+          "mrr": 0.7009,
+          "ndcg_at_10": 0.7312,
+          "latency_ms_p50": 1.1,
+          "latency_ms_p95": 1.88
+        },
+        {
+          "name": "semantic",
+          "recall_at_k": {
+            "1": 0.729,
+            "5": 0.851,
+            "10": 0.886
+          },
+          "precision_at_k": {
+            "1": 0.78,
+            "5": 0.2
+          },
+          "mrr": 0.8064,
+          "ndcg_at_10": 0.8188,
+          "latency_ms_p50": 8.51,
+          "latency_ms_p95": 11.61
+        },
+        {
+          "name": "hybrid",
+          "recall_at_k": {
+            "1": 0.669,
+            "5": 0.838,
+            "10": 0.913
+          },
+          "precision_at_k": {
+            "1": 0.72,
+            "5": 0.188
+          },
+          "mrr": 0.7872,
+          "ndcg_at_10": 0.8076,
+          "latency_ms_p50": 9.57,
+          "latency_ms_p95": 13.33
+        },
+        {
+          "name": "hybrid+rerank",
+          "recall_at_k": {
+            "1": 0.615,
+            "5": 0.863,
+            "10": 0.926
+          },
+          "precision_at_k": {
+            "1": 0.64,
+            "5": 0.192
+          },
+          "mrr": 0.7498,
+          "ndcg_at_10": 0.7913,
+          "latency_ms_p50": 616.17,
+          "latency_ms_p95": 739.01
+        }
+      ]
+    }
+  ]
+}

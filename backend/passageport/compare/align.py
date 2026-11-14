@@ -124,7 +124,8 @@ _UNITS = frozenset(
 # Words whose presence changes what a sentence asserts; near-identical sentences that differ in
 # them are not reported as shared.
 _POLARITY = frozenset(
-    """no not never none cannot cant wont dont doesnt isnt arent shouldnt mustnt without unless except only
+    """no not never none cannot cant wont dont doesnt isnt arent wasnt werent hasnt havent hadnt
+    didnt couldnt wouldnt shouldnt mustnt neednt mightnt shant aint oughtnt darent without unless except only
     must may should shall always optional required mandatory forbidden allowed""".split()
 )
 

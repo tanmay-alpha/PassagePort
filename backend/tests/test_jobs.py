@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from conftest import CSRF_HEADERS, SAMPLE_PAGES, build_pdf, create_collection, upload_file
@@ -469,3 +470,65 @@ def test_index_document_without_ownership_writes_nothing(client, collection_id, 
     document = upload_file(client, collection_id, "notes.txt", b"text").json()["document"]
     assert pipeline.index_document(engine, settings, document["id"], still_owned=lambda _conn: False) is False
     assert _document(client, document["id"])["status"] == "uploaded"
+
+
+@pytest.mark.parametrize("outcome", ["ready", "parse_error", "unexpected_error"])
+def test_worker_losing_ownership_during_preparation_cannot_mutate_the_successor_result(
+    client, collection_id, engine, settings, monkeypatch, outcome
+):
+    document = upload_file(client, collection_id, "notes.txt", b"contested text").json()["document"]
+    stalled = claim_next(engine, settings)
+    real_prepare = pipeline.prepare_index
+    completed = []
+
+    def lose_lease(*args, **kwargs):
+        prepared = real_prepare(*args, **kwargs)
+        monkeypatch.setattr(pipeline, "prepare_index", real_prepare)
+        with engine.begin() as conn:
+            conn.execute(update(jobs).values(lease_expires_at=utcnow() - timedelta(seconds=1)))
+        successor = claim_next(engine, settings)
+        assert successor is not None and successor.attempts == 2
+        process_job(engine, settings, successor)
+        completed.append(_document(client, document["id"]))
+        if outcome == "parse_error":
+            raise ParseError("Stale parsing failure.")
+        if outcome == "unexpected_error":
+            raise RuntimeError("Stale worker failure.")
+        return prepared
+
+    monkeypatch.setattr(pipeline, "prepare_index", lose_lease)
+    process_job(engine, settings, stalled)
+
+    assert completed[0]["status"] == "indexed"
+    assert _document(client, document["id"]) == completed[0]
+    assert (_job(engine, document["id"]).status, _job(engine, document["id"]).attempts) == ("succeeded", 2)
+    assert _index_version(engine) == 1
+
+
+def test_guest_maintenance_is_not_starved_by_a_nonempty_queue(engine, settings, monkeypatch):
+    working = worker._Worker(engine, settings)
+    clock = [0.0]
+    processed = []
+    purged = []
+    monkeypatch.setattr(worker, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def claim(*_args):
+        if len(processed) == 4:
+            working._stop.set()
+            return None
+        return worker.ClaimedJob("job", "document", 1)
+
+    def process(*_args):
+        processed.append(1)
+        clock[0] += worker.MAINTENANCE_INTERVAL_SECONDS / 2
+
+    def purge(*_args):
+        purged.append(clock[0])
+        working._stop.set()
+
+    monkeypatch.setattr(worker, "claim_next", claim)
+    monkeypatch.setattr(worker, "process_job", process)
+    monkeypatch.setattr(worker, "purge_expired_guests", purge)
+    working._run()
+
+    assert purged == [worker.MAINTENANCE_INTERVAL_SECONDS]

@@ -241,13 +241,15 @@ class _Worker:
         while not self._stop.is_set():
             self._wake.clear()
             try:
-                while not self._stop.is_set() and (job := claim_next(self.engine, self._settings)):
-                    process_job(self.engine, self._settings, job)
                 if time.monotonic() - last_maintenance >= MAINTENANCE_INTERVAL_SECONDS:
                     # Without this a server that never restarts would keep guest data past its
                     # TTL until the next guest happens to sign in.
                     last_maintenance = time.monotonic()
                     purge_expired_guests(self.engine, self._settings)
+                job = claim_next(self.engine, self._settings)
+                if job is not None:
+                    process_job(self.engine, self._settings, job)
+                    continue  # Check maintenance between jobs even when the queue never empties.
             except Exception as exc:
                 # Keep the worker alive through database hiccups; the next poll retries.
                 log.error("index worker error: %s", type(exc).__name__)

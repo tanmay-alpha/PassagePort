@@ -57,6 +57,24 @@ def test_sentences_split_on_lines_and_keep_decimals() -> None:
     ]
 
 
+
+
+def test_pdf_soft_wraps_preserve_complete_verbatim_sentences() -> None:
+    first = (
+        "Deadlock prevention works by making sure at least one of the four Coffman conditions can never\n"
+        "hold."
+    )
+    text = first + " It is a design-time guarantee.\n\nA separate paragraph follows."
+    sentences = split_sentences(text)
+    assert [sentence.text for sentence in sentences] == [
+        first, "It is a design-time guarantee.", "A separate paragraph follows."
+    ]
+    assert all(text[s.start:s.end] == s.text for s in sentences)
+    segments = select_sentences("four Coffman conditions deadlock prevention", [(1, text)], HashingEmbedder())
+    assert first in [segment.text for segment in segments]
+    assert all(segment.text in text for segment in segments)
+
+
 def test_select_sentences_prefers_the_answer_and_keeps_reading_order() -> None:
     passages = [(1, BACKUP_SECTION), (2, "Simmer the tomato sauce for twenty minutes. Add basil at the end.")]
     segments = select_sentences("How long is the retention period for backups?", passages, HashingEmbedder())

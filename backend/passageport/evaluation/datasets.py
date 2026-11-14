@@ -22,6 +22,10 @@ SCIFACT_URL = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/dataset
 DATASET_NAMES = ("mini", "scifact")
 
 
+class DatasetUnavailable(RuntimeError):
+    """A public dataset could not be downloaded; never replace it with synthetic observations."""
+
+
 @dataclass(frozen=True, slots=True)
 class EvalDocument:
     doc_id: str
@@ -83,7 +87,7 @@ def load_mini(directory: Path | None = None) -> EvalCorpus:
         description=(
             "Hand-written technical corpus (operating systems, networking, databases, an API spec in two "
             "versions, operations, security, a research-style report). A hit is relevant when its chunk "
-            "contains the labelled quote. Small and self-authored: indicative only."
+            "overlaps the labelled quote. Small and self-authored: indicative only."
         ),
         relevance="chunk",
         documents=documents,
@@ -98,8 +102,13 @@ def _download_scifact(cache_dir: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     archive = target.parent / "scifact.zip"
     if not archive.exists():
-        with urllib.request.urlopen(SCIFACT_URL, timeout=120) as response:  # noqa: S310 - fixed https URL
-            archive.write_bytes(response.read())
+        try:
+            with urllib.request.urlopen(SCIFACT_URL, timeout=120) as response:  # noqa: S310 - fixed https URL
+                data = response.read()
+        except OSError as exc:
+            message = f"SciFact download unavailable ({type(exc).__name__}); skipping {SCIFACT_URL}"
+            raise DatasetUnavailable(message) from exc
+        archive.write_bytes(data)
     with zipfile.ZipFile(archive) as bundle:
         root = target.parent.resolve()
         for member in bundle.namelist():

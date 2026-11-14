@@ -33,7 +33,7 @@ def test_exact_identifier_is_found_by_keyword_search(workspace: Workspace) -> No
     assert hit["text"] == "The error ECONNRESET means the peer closed the connection abruptly."
     assert hit["document_id"] == network
     assert hit["rank"] == 1
-    assert hit["matched_terms"] == ["econnreset"]
+    assert hit["matched_terms"] == ["ECONNRESET"]
     assert hit["scores"]["keyword"]["rank"] == 1
     assert hit["scores"]["keyword"]["score"] > 0
     assert hit["scores"]["semantic"] is None
@@ -83,7 +83,7 @@ def test_hybrid_finds_an_identifier_and_a_paraphrase(make_workspace: Callable[..
     top = identifier["results"][0]
     assert "P0420" in top["text"]
     assert top["scores"]["keyword"]["rank"] == 1
-    assert top["matched_terms"] == ["p0420"]
+    assert top["matched_terms"] == ["P0420"]
     assert identifier["low_confidence"] is False
 
 
@@ -301,3 +301,24 @@ def test_rate_limit(make_workspace: Callable[..., Workspace]) -> None:
     limited = workspace.post("/api/search", payload)
     assert limited.status_code == 429
     assert limited.json()["error"]["code"] == "rate_limited"
+
+
+@pytest.mark.parametrize(
+    ("source", "query"),
+    [
+        ("Straße café", "strasse"),
+        ("ＦＵＬＬ－ＷＩＤＴＨ", "full-width"),
+        ("Don't erase 1.2.3", "dont 1.2.3"),
+        ("don’t retry maxRetries", "dont retry"),
+    ],
+)
+def test_every_matched_term_can_be_highlighted_in_hit_text(
+    workspace: Workspace, source: str, query: str
+) -> None:
+    collection_id = workspace.collection()
+    workspace.document(collection_id, "Source spellings", [source])
+    hits = _search(workspace, collection_id, query, mode="keyword")["results"]
+    assert hits
+    for hit in hits:
+        assert hit["matched_terms"]
+        assert all(term in hit["text"] and term.lower() in hit["text"].lower() for term in hit["matched_terms"])

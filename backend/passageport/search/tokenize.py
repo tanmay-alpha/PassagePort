@@ -47,7 +47,7 @@ _NUMERIC = re.compile(r"\d+(?:[.:]\d+)*")
 
 class Token(NamedTuple):
     term: str  # normalized index term
-    surface: str  # lower-cased text as written in the source, for highlighting
+    surface: str  # lower-cased normalized surface; matched_surfaces resolves it to source text
 
 
 # Plurals the suffix rules get wrong, and singulars that merely look plural.
@@ -109,9 +109,20 @@ def stem(word: str, mode: str | None = None) -> str:
     return _stem_light(word) if mode == "light" else _stem_plural(word)
 
 
-@lru_cache(maxsize=65536)
 def _expand(raw: str, mode: str) -> tuple[Token, ...]:
-    """All index terms of one compound as matched by ``_COMPOUND`` (memoized: words repeat)."""
+    """Expand oversized compounds without retaining their unbounded raw strings in the cache."""
+    if len(raw) > MAX_TERM_CHARS:
+        return _expand_uncached(raw, mode)
+    return _expand_cached(raw, mode)
+
+
+@lru_cache(maxsize=65536)
+def _expand_cached(raw: str, mode: str) -> tuple[Token, ...]:
+    return _expand_uncached(raw, mode)
+
+
+def _expand_uncached(raw: str, mode: str) -> tuple[Token, ...]:
+    """All index terms of one compound as matched by ``_COMPOUND``."""
     out: list[Token] = []
     surface = raw.casefold()
     pieces = _CONNECTOR.split(raw)
@@ -158,8 +169,36 @@ def query_terms(query: str, stemming: str | None = None) -> list[str]:
 
 
 def matched_surfaces(text: str, terms: set[str] | frozenset[str], stemming: str | None = None) -> list[str]:
-    """Lower-cased words of ``text`` whose index term is one of ``terms``, in reading order.
+    """Return literal source substrings, never case-folded or compatibility-normalized spellings.
 
-    These are what a UI should highlight: the words as written in the passage, not their stems.
+    Normalization is many-to-one (``Straße``/``strasse``, ligatures, full-width text, apostrophes).
+    Track source spans through that normalization so every returned highlight occurs in the passage.
     """
-    return list(dict.fromkeys(token.surface for token in tokens(text, stemming) if token.term in terms))
+    if not terms:
+        return []
+    normalized: list[str] = []
+    spans: list[tuple[int, int]] = []
+    # Normalize a base character with its combining marks together, preserving canonical composition.
+    for cluster in re.finditer(r".(?:[\u0300-\u036f]*)", text, re.DOTALL):
+        normalized_cluster = unicodedata.normalize("NFKC", cluster.group())
+        normalized.extend(normalized_cluster)
+        spans.extend([(cluster.start(), cluster.end())] * len(normalized_cluster))
+    source = "".join(normalized)
+    removed = {m.start() for m in _APOSTROPHE.finditer(source)}
+    if removed:
+        spans = [span for i, span in enumerate(spans) if i not in removed]
+        source = "".join(ch for i, ch in enumerate(source) if i not in removed)
+    mode = STEMMING if stemming is None else stemming
+    found: dict[str, str] = {}
+    for match in _COMPOUND.finditer(source):
+        folded = match.group().casefold()
+        folded_positions = [i for i, ch in enumerate(match.group()) for _ in ch.casefold()]
+        for token in _expand(match.group(), mode):
+            if token.term not in terms:
+                continue
+            offset = folded.find(token.surface)
+            start = match.start() + folded_positions[offset]
+            end = match.start() + folded_positions[offset + len(token.surface) - 1] + 1
+            written = text[spans[start][0] : spans[end - 1][1]]
+            found.setdefault(written.lower(), written)
+    return list(found.values())

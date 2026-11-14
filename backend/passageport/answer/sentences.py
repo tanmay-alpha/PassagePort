@@ -1,8 +1,9 @@
 """Sentence splitting that preserves the original text.
 
 Extractive answers and document comparison quote sentences verbatim, so every returned sentence is
-an exact substring of the input (only surrounding whitespace is dropped). A line break always ends
-a sentence: in Markdown and plain text, headings, list items and table rows are separate lines.
+an exact substring of the input (only surrounding whitespace is dropped). Single newlines inside
+prose are soft wraps, as commonly produced by PDF extraction. Blank lines and Markdown structure
+still separate fragments without inventing punctuation or rewriting source text.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ _ABBREVIATIONS = frozenset(
 _BOUNDARY = re.compile(r"""[.!?]+["')\]]*(?=\s+\S)""")
 _LAST_WORD = re.compile(r"([^\W\d_][\w.]*)[.!?]+[\"')\]]*$")
 _LIST_MARKER = re.compile(r"^(?:[-*+\u2022]|\d{1,3}[.)])\s+")
+_STRUCTURAL_LINE = re.compile(r"^\s*(?:#{1,6}(?:\s|$)|(?:[-*+\u2022]|\d{1,3}[.)])\s+|\||```|~~~)")
 
 
 class Sentence(NamedTuple):
@@ -42,18 +44,26 @@ def _starts_sentence(text: str, position: int) -> bool:
 
 def split_sentences(text: str) -> list[Sentence]:
     sentences: list[Sentence] = []
-    offset = 0
-    for line in text.split("\n"):
-        start = 0
-        for match in _BOUNDARY.finditer(line):
-            end = match.end()
-            if _ends_with_abbreviation(line[start:end]) or not _starts_sentence(line, end):
-                continue
-            _append(sentences, line, start, end, offset)
-            start = end
-        _append(sentences, line, start, len(line), offset)
-        offset += len(line) + 1
+    offset = block_start = 0
+    for line in text.splitlines(keepends=True):
+        if not line.strip() or _STRUCTURAL_LINE.match(line):
+            _split_block(sentences, text[block_start:offset], block_start)
+            _split_block(sentences, line, offset)
+            block_start = offset + len(line)
+        offset += len(line)
+    _split_block(sentences, text[block_start:], block_start)
     return sentences
+
+
+def _split_block(sentences: list[Sentence], block: str, offset: int) -> None:
+    start = 0
+    for match in _BOUNDARY.finditer(block):
+        end = match.end()
+        if _ends_with_abbreviation(block[start:end]) or not _starts_sentence(block, end):
+            continue
+        _append(sentences, block, start, end, offset)
+        start = end
+    _append(sentences, block, start, len(block), offset)
 
 
 def _append(sentences: list[Sentence], line: str, start: int, end: int, offset: int) -> None:

@@ -59,7 +59,7 @@ class FastEmbedEmbedder:
                     from fastembed import TextEmbedding
                     from tokenizers import Tokenizer
 
-                    engine = TextEmbedding(self.model, cache_dir=self._cache_dir)
+                    engine: Any = TextEmbedding(self.model, cache_dir=self._cache_dir)
                     # The model's own tokenizer truncates at the context window. Chunk sizing needs
                     # the true length, so token counting uses an untruncated copy.
                     tokenizer = Tokenizer.from_str(engine.model.tokenizer.to_str())
@@ -120,7 +120,10 @@ class FastEmbedReranker:
         if not passages:
             return []
         order = _by_length(passages)
-        scores = self._load().rerank(query, [passages[i] for i in order], batch_size=_BATCH_SIZE)
+        scores = list(self._load().rerank(query, [passages[i] for i in order], batch_size=_BATCH_SIZE))
+        if len(scores) != len(passages):
+            # Preserve malformed output for retrieval's controlled skip; never partially reorder it.
+            return [float(score) for score in scores]
         restored = [0.0] * len(passages)
         for position, score in zip(order, scores, strict=True):
             restored[position] = float(score)

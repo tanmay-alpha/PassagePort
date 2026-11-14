@@ -129,7 +129,9 @@ def test_zip_with_too_many_entries_is_rejected(monkeypatch):
     assert caught.value.status_code == 415
 
 
-def test_archive_with_a_huge_entry_count_is_refused_before_it_is_opened(monkeypatch):
+def test_archive_with_a_huge_entry_count_is_refused_before_it_is_opened(
+    client, collection_id, settings, monkeypatch
+):
     """Memory amplification: 30,000 empty entries are a ~3 MB upload but would become 30,000
     Python objects the moment a zip parser opens the archive. It must never get that far."""
     crowded = _zip({"word/document.xml": b"<w:document/>"} | {f"e{i}": b"" for i in range(30_000)})
@@ -139,10 +141,11 @@ def test_archive_with_a_huge_entry_count_is_refused_before_it_is_opened(monkeypa
         raise AssertionError("the archive must not be opened")
 
     monkeypatch.setattr(validate.zipfile, "ZipFile", never)
-    with pytest.raises(ApiError) as caught:
-        validate_upload("crowded.docx", crowded)
-    assert caught.value.status_code == 415
-    assert "unreasonable size" in caught.value.message
+    response = upload_file(client, collection_id, "crowded.docx", crowded)
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_file"
+    assert "unreasonable size" in response.json()["error"]["message"]
+    assert _stored_blobs(settings) == []
 
 
 def test_entry_count_guard_does_not_trust_the_archive_header(monkeypatch):
@@ -158,6 +161,67 @@ def test_entry_count_guard_does_not_trust_the_archive_header(monkeypatch):
 
 def test_ordinary_documents_pass_the_entry_count_guard():
     assert validate_upload("fine.docx", build_docx([("p", "hello")])).kind == "docx"
+
+
+@pytest.mark.parametrize(
+    ("offset", "width", "value"),
+    [
+        (8, 2, 0xFFFF),
+        (10, 2, 0xFFFF),
+        (12, 4, 0xFFFFFFFF),
+        (16, 4, 0xFFFFFFFF),
+        (12, 4, validate.MAX_ZIP_CENTRAL_DIRECTORY_BYTES + 1),
+        (4, 2, 1),
+        (6, 2, 1),
+        (10, 2, 0),
+        (16, 4, 0),
+        (20, 2, 1),
+    ],
+)
+def test_unsafe_zip_end_records_are_rejected_before_opening(monkeypatch, offset, width, value):
+    data = bytearray(_zip({"word/document.xml": b"<w:document/>"}))
+    end = data.rfind(b"PK\x05\x06")
+    data[end + offset : end + offset + width] = value.to_bytes(width, "little")
+    monkeypatch.setattr(validate.zipfile, "ZipFile", lambda *_a, **_k: pytest.fail("opened"))
+    with pytest.raises(ApiError) as caught:
+        validate_upload("unsafe.docx", bytes(data))
+    assert caught.value.status_code == 415
+
+
+def test_zip64_locator_is_rejected_before_opening(monkeypatch):
+    data = _zip({"word/document.xml": b"<w:document/>"})
+    end = data.rfind(b"PK\x05\x06")
+    data = data[:end] + b"PK\x06\x07" + b"\x00" * 16 + data[end:]
+    monkeypatch.setattr(validate.zipfile, "ZipFile", lambda *_a, **_k: pytest.fail("opened"))
+    with pytest.raises(ApiError) as caught:
+        validate_upload("zip64.docx", data)
+    assert caught.value.status_code == 415
+
+
+def test_central_directory_size_is_bounded_before_opening(monkeypatch):
+    data = _zip({"word/document.xml": b"<w:document/>"})
+    monkeypatch.setattr(validate, "MAX_ZIP_CENTRAL_DIRECTORY_BYTES", 32)
+    monkeypatch.setattr(validate.zipfile, "ZipFile", lambda *_a, **_k: pytest.fail("opened"))
+    with pytest.raises(ApiError) as caught:
+        validate_upload("large-directory.docx", data)
+    assert caught.value.status_code == 415
+
+
+def test_central_directory_record_boundaries_are_checked_before_opening(monkeypatch):
+    data = bytearray(_zip({"word/document.xml": b"<w:document/>"}))
+    entry = data.find(b"PK\x01\x02")
+    data[entry + 28 : entry + 30] = (0xFFFF).to_bytes(2, "little")
+    monkeypatch.setattr(validate.zipfile, "ZipFile", lambda *_a, **_k: pytest.fail("opened"))
+    with pytest.raises(ApiError) as caught:
+        validate_upload("malformed-directory.docx", bytes(data))
+    assert caught.value.status_code == 415
+
+
+def test_zip_signatures_inside_comments_are_not_counted_as_entries():
+    buffer = io.BytesIO(_zip({"word/document.xml": b"<w:document/>"}))
+    with zipfile.ZipFile(buffer, "a") as archive:
+        archive.comment = b"PK\x01\x02" * (validate.MAX_ZIP_ENTRIES + 1)
+    assert validate_upload("comment.docx", buffer.getvalue()).kind == "docx"
 
 
 # --------------------------------------------------------------------------- size
@@ -356,3 +420,48 @@ def test_concurrent_identical_uploads_store_one_document(client, collection_id, 
     statuses = burst(8, send)
     assert sorted(statuses) == [200] * 7 + [201], statuses
     assert len(_stored_blobs(settings)) == 1
+
+
+@pytest.mark.parametrize("size", [11_000, 2 * 1024 * 1024])
+def test_oversize_multipart_without_content_length_is_rejected(make_settings, make_app, size):
+    settings = make_settings(max_upload_mb=0.01)
+    with TestClient(make_app(settings), headers=CSRF_HEADERS) as client:
+        collection = create_collection(client)
+        prefix = (
+            b"--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.txt\"\r\n"
+            b"Content-Type: text/plain\r\n\r\n"
+        )
+
+        def chunks():
+            yield prefix
+            for start in range(0, size, 8192):
+                yield b"a" * min(8192, size - start)
+            yield b"\r\n--boundary--\r\n"
+
+        response = client.post(
+            f"/api/collections/{collection}/documents",
+            content=chunks(),
+            headers={"Content-Type": "multipart/form-data; boundary=boundary"},
+        )
+        assert "content-length" not in response.request.headers
+        assert response.status_code == 413
+        assert _error(response)["code"] == "payload_too_large"
+        assert client.get(f"/api/collections/{collection}/documents").json() == []
+        assert _stored_blobs(settings) == []
+
+
+def test_concurrent_uploads_cannot_exceed_the_storage_quota(make_settings, make_app):
+    settings = make_settings(max_storage_mb_per_user=1)
+    app = make_app(settings)
+    with TestClient(app, headers=CSRF_HEADERS) as client:
+        collection = create_collection(client)
+
+        def send(index: int) -> int:
+            own = TestClient(app, headers=CSRF_HEADERS)
+            data = str(index).encode() * 600_000
+            return upload_file(own, collection, f"{index}.txt", data).status_code
+
+        statuses = burst(6, send)
+        assert sorted(statuses) == [201] + [409] * 5, statuses
+        assert client.get("/api/system").json()["usage"]["storage_bytes"] == 600_000
+        assert len(_stored_blobs(settings)) == 1

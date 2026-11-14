@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import os
+import struct
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -23,7 +24,10 @@ MAX_TITLE_CHARS = 255
 # is decompressed, so a zip bomb is rejected without inflating a single byte.
 MAX_ZIP_ENTRIES = 2000
 MAX_ZIP_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_ZIP_CENTRAL_DIRECTORY_BYTES = 8 * 1024 * 1024
 _ZIP_CENTRAL_HEADER = b"PK\x01\x02"
+_ZIP_END_HEADER = b"PK\x05\x06"
+_ZIP_END = struct.Struct("<4s4H2IH")
 _READ_CHUNK = 1024 * 1024
 _SUPPORTED = "PDF, DOCX, TXT or Markdown"
 
@@ -104,15 +108,67 @@ def _check_text(data: bytes, label: str) -> None:
         ) from None
 
 
+def _check_zip_directory(data: bytes) -> None:
+    """Bound the directory before ZipFile allocates a ZipInfo for every record.
+
+    EOCD counts are untrusted too: walk the bounded directory without allocating entry objects,
+    checking record boundaries and the actual count before handing it to the standard parser.
+    ZIP64 and split archives are unnecessary for bounded uploads and deliberately unsupported.
+    """
+    not_docx = unsupported("This file has a .docx extension but is not a Word document.")
+    too_big = unsupported("This Word document expands to an unreasonable size and was rejected for safety.")
+    end = data.rfind(_ZIP_END_HEADER, max(0, len(data) - _ZIP_END.size - 65535))
+    if end < 0 or end + _ZIP_END.size > len(data):
+        raise not_docx
+    _, disk, cd_disk, disk_entries, entries, cd_size, cd_offset, comment_size = _ZIP_END.unpack_from(
+        data, end
+    )
+    if (
+        entries == 0xFFFF
+        or disk_entries == 0xFFFF
+        or cd_size == 0xFFFFFFFF
+        or cd_offset == 0xFFFFFFFF
+        or data[max(0, end - 20) : end - 16] == b"PK\x06\x07"
+        or entries > MAX_ZIP_ENTRIES
+        or cd_size > MAX_ZIP_CENTRAL_DIRECTORY_BYTES
+    ):
+        raise too_big
+    if (
+        disk != 0
+        or cd_disk != 0
+        or disk_entries != entries
+        or end + _ZIP_END.size + comment_size != len(data)
+        or cd_offset + cd_size != end
+    ):
+        raise not_docx
+    position = cd_offset
+    count = 0
+    while position < end:
+        count += 1
+        if count > MAX_ZIP_ENTRIES:
+            raise too_big
+        if position + 46 > end or data[position : position + 4] != _ZIP_CENTRAL_HEADER:
+            raise not_docx
+        name_size, extra_size, entry_comment_size, entry_disk = struct.unpack_from(
+            "<4H", data, position + 28
+        )
+        compressed, uncompressed = struct.unpack_from("<2I", data, position + 20)
+        local_offset = struct.unpack_from("<I", data, position + 42)[0]
+        if 0xFFFFFFFF in (compressed, uncompressed, local_offset):
+            raise too_big
+        if entry_disk:
+            raise not_docx
+        position += 46 + name_size + extra_size + entry_comment_size
+        if position > end:
+            raise not_docx
+    if count != entries:
+        raise not_docx
+
+
 def _check_docx(data: bytes) -> None:
     not_docx = unsupported("This file has a .docx extension but is not a Word document.")
     too_big = unsupported("This Word document expands to an unreasonable size and was rejected for safety.")
-    # Opening a zip builds one object per central-directory entry, so a small file with hundreds
-    # of thousands of empty entries would cost the server far more memory than its size. Every
-    # entry record must start with this signature, so counting it bounds what any zip parser can
-    # materialise - without trusting a single length or count field of the archive.
-    if data.count(_ZIP_CENTRAL_HEADER) > MAX_ZIP_ENTRIES:
-        raise too_big
+    _check_zip_directory(data)
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             entries = archive.infolist()

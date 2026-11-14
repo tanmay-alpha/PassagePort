@@ -226,7 +226,23 @@ def test_bracketed_text_that_is_not_a_citation_is_kept() -> None:
 def test_insufficient_evidence_is_honoured() -> None:
     assert parse_cited_answer("INSUFFICIENT_EVIDENCE", {1}) is None
     assert parse_cited_answer("  INSUFFICIENT_EVIDENCE.\n", {1}) is None
-    assert parse_cited_answer("INSUFFICIENT_EVIDENCE - the passages do not say [1].", {1}) is None
+    assert parse_cited_answer('  "INSUFFICIENT_EVIDENCE."  ', {1}) is None
+    assert parse_cited_answer("‘INSUFFICIENT_EVIDENCE’!", {1}) is None
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "INSUFFICIENT_EVIDENCE - the passages do not say [1].",
+        "The error is named INSUFFICIENT_EVIDENCE [1].",
+        "INSUFFICIENT_EVIDENCE is the documented refusal marker [1].",
+        "Use NOT_INSUFFICIENT_EVIDENCE to distinguish the state [1].",
+    ],
+)
+def test_mentioning_the_refusal_marker_is_not_a_refusal(reply: str) -> None:
+    segments = parse_cited_answer(reply, {1})
+    assert segments is not None
+    assert has_valid_citation(segments)
 
 
 def test_multiline_replies_split_on_line_breaks() -> None:

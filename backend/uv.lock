@@ -1904,6 +1904,7 @@ dependencies = [
 [package.optional-dependencies]
 baseline = [
     { name = "lancedb" },
+    { name = "loguru" },
     { name = "sentence-transformers" },
     { name = "torch" },
 ]
@@ -1932,6 +1933,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.120" },
     { name = "lancedb", marker = "extra == 'baseline'", specifier = ">=0.19" },
+    { name = "loguru", marker = "extra == 'baseline'", specifier = ">=0.7.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "psutil", marker = "extra == 'dev'", specifier = ">=6.0" },

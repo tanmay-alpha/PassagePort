@@ -26,7 +26,7 @@ from typing import Any
 from passageport.api.schemas import EvalDataset, EvalReport, EvalRun
 from passageport.config import Settings
 from passageport.evaluation import harness
-from passageport.evaluation.datasets import DATASET_NAMES, DEFAULT_CACHE_DIR, EvalQuery, load_corpus
+from passageport.evaluation.datasets import DATASET_NAMES, DEFAULT_CACHE_DIR, DatasetUnavailable, EvalQuery, load_corpus
 from passageport.evaluation.harness import ModelSpec, RunConfig
 from passageport.search.service import FULL_KEYWORD_COVERAGE
 from passageport.search.tokenize import STEMMING_MODES, TOKENIZER_NAME
@@ -35,6 +35,14 @@ _DEFAULTS = Settings(_env_file=None)  # type: ignore[call-arg]
 DEFAULT_EMBEDDING = f"fastembed:{_DEFAULTS.embedding_model}"
 DEFAULT_RERANKER = f"fastembed:{_DEFAULTS.reranker_model}"
 DEFAULT_RUNS = ("keyword", "semantic", "hybrid", "hybrid+rerank")
+
+
+def _corpus(args: argparse.Namespace, name: str) -> Any:
+    try:
+        return load_corpus(name, cache_dir=args.cache_dir, max_queries=args.max_queries)
+    except DatasetUnavailable as exc:
+        _log(str(exc))
+        return None
 
 
 def _command() -> str:
@@ -49,7 +57,10 @@ def _log(message: str) -> None:
 def _header() -> dict[str, Any]:
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "git_commit": harness.git_commit(),
+        "git_commit": None,
+        "base_git_commit": harness.git_commit(),
+        "working_tree_dirty": True,
+        "source_sha256": harness.source_hashes(),
         "hardware": harness.hardware_string(),
         "command": _command(),
         "packages": harness.package_versions(),
@@ -128,7 +139,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         configs = [c for c in configs if not c.rerank]
     payload = _header() | {"label": args.label, "embedding": embedding_info, "reranker": reranker_info, "datasets": []}
     for name in args.datasets:
-        corpus = load_corpus(name, cache_dir=args.cache_dir, max_queries=args.max_queries)
+        corpus = _corpus(args, name)
+        if corpus is None:
+            payload.setdefault("skipped_datasets", []).append(name)
+            continue
         _log(f"{name}: indexing {len(corpus.documents)} documents")
         index = harness.build_eval_index(
             corpus, embedder, args.cache_dir / "index", chunk_max_tokens=args.chunk_tokens, rebuild=args.rebuild
@@ -187,7 +201,10 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     payload = _header() | {"embedding": embedding_info, "reranker": reranker_info, "rows": rows}
 
     for name in args.datasets:
-        corpus = load_corpus(name, cache_dir=args.cache_dir, max_queries=args.max_queries)
+        corpus = _corpus(args, name)
+        if corpus is None:
+            payload.setdefault("skipped_datasets", []).append(name)
+            continue
         queries = [q for q in corpus.queries if q.answerable]
         vectors = {q.text: embedder.embed_query(q.text) for q in queries}
 
@@ -251,9 +268,9 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     embedder, bare_reranker, embedding_info, reranker_info = _load_models(args, need_reranker=True)
     reranker = harness.CachingReranker(bare_reranker) if bare_reranker is not None else None
     mini = load_corpus("mini", cache_dir=args.cache_dir)
-    scifact = load_corpus("scifact", cache_dir=args.cache_dir, max_queries=args.max_queries)
+    scifact = _corpus(args, "scifact")
     mini_index = harness.build_eval_index(mini, embedder, args.cache_dir / "index")
-    scifact_index = harness.build_eval_index(scifact, embedder, args.cache_dir / "index")
+    scifact_index = harness.build_eval_index(scifact, embedder, args.cache_dir / "index") if scifact else None
 
     mini_answerable = [q for q in mini.queries if q.answerable]
     # "Source removed": the same questions with their answer document filtered out. The remaining
@@ -266,12 +283,15 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     }
     plan: list[tuple[str, bool, harness.EvalIndex, list[EvalQuery], dict[str, list[str]] | None]] = [
         ("mini: answerable", True, mini_index, mini_answerable, None),
-        ("scifact: answerable", True, scifact_index, list(scifact.queries), None),
         ("mini: out-of-scope queries", False, mini_index, [q for q in mini.queries if not q.answerable], None),
         ("mini: source document removed", False, mini_index, removable, without_source),
-        ("mini corpus, scifact queries", False, mini_index, list(scifact.queries), None),
-        ("scifact corpus, mini queries", False, scifact_index, list(mini.queries), None),
     ]
+    if scifact is not None and scifact_index is not None:
+        plan.extend([
+            ("scifact: answerable", True, scifact_index, list(scifact.queries), None),
+            ("mini corpus, scifact queries", False, mini_index, list(scifact.queries), None),
+            ("scifact corpus, mini queries", False, scifact_index, list(mini.queries), None),
+        ])
     answerable_groups = {group for group, answerable, *_ in plan if answerable}
 
     records: dict[str, list[dict[str, Any]]] = {"hybrid": [], "hybrid+rerank": []}
@@ -296,8 +316,13 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
                 return covered or (value is not None and value >= threshold)
 
             rates = _rates(records[run], rule)
-            out.append({"threshold": threshold, "confident_share": rates,
-                        "balanced_accuracy": _balanced(rates, answerable_groups)})
+            mini_rates = {group: rate for group, rate in rates.items() if group.startswith("mini:")}
+            out.append({
+                "threshold": threshold,
+                "confident_share": rates,
+                "balanced_accuracy": _balanced(rates, answerable_groups),
+                "mini_balanced_accuracy": _balanced(mini_rates, {"mini: answerable"}),
+            })
         return out
 
     similarity_grid = [round(0.40 + 0.02 * i, 2) for i in range(21)]
@@ -315,12 +340,14 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
         "top_k": mini_index.settings.search_top_k,
         "answerable_groups": sorted(answerable_groups),
         "tables": tables,
-        "best": {name: max(rows, key=lambda r: r["balanced_accuracy"]) for name, rows in tables.items()},
+        "selection": "Maximize mini-only balanced accuracy; SciFact groups are transfer diagnostics, not tuning data.",
+        "best": {name: max(rows, key=lambda r: r["mini_balanced_accuracy"]) for name, rows in tables.items()},
         "records": records,
     }
     _write(args.out, payload)
     for name, row in payload["best"].items():
-        _log(f"{name}: best t={row['threshold']} balanced={row['balanced_accuracy']} {row['confident_share']}")
+        _log(f"{name}: best t={row['threshold']} mini_balanced={row['mini_balanced_accuracy']} "
+             f"{row['confident_share']}")
     return 0
 
 
@@ -375,6 +402,13 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_baseline(args: argparse.Namespace) -> int:
+    from passageport.evaluation.baseline import run
+
+    _write(args.out, run(args, _header()))
+    return 0
+
+
 # --------------------------------------------------------------------------- CLI
 
 
@@ -413,6 +447,12 @@ def _parser() -> argparse.ArgumentParser:
 
     calibrate = commands.add_parser("calibrate", help="confidence-threshold calibration data")
     common(calibrate)
+    baseline = commands.add_parser("baseline", help="run the original upstream checkout's actual pipeline")
+    common(baseline)
+    baseline.add_argument("--upstream-root", type=Path, required=True, help="original upstream backend directory")
+    baseline.add_argument("--datasets", nargs="+", choices=DATASET_NAMES, default=["mini"])
+    baseline.set_defaults(handler=cmd_baseline)
+
     calibrate.set_defaults(handler=cmd_calibrate)
 
     report = commands.add_parser("report", help="merge evaluate outputs into the app-facing report")

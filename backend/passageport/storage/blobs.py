@@ -85,7 +85,7 @@ class FsBlobStore:
         _check(key)
         return self.root / key[:2] / key
 
-    def put(self, key: str, data: bytes, conn: Connection | None = None) -> None:  # noqa: ARG002
+    def put(self, key: str, data: bytes, conn: Connection | None = None) -> None:
         """Write to a temp file and rename, so a crash never leaves a truncated blob behind.
 
         A file cannot join a database transaction: if the caller's transaction then fails, it

@@ -93,3 +93,51 @@ def test_keyword_mode_can_be_reranked(workspace: Workspace) -> None:
     assert "expires" in body["results"][0]["text"]
     assert body["results"][0]["scores"]["rerank"] == pytest.approx(5.0)
     assert body["settings"]["mode"] == "keyword"
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf"), "short", "long"])
+def test_invalid_reranker_output_preserves_fused_order(workspace: Workspace, invalid: float | str) -> None:
+    collection_id, _, _ = handbook(workspace)
+    payload = {"query": "reset link", "collection_id": collection_id}
+    plain = workspace.ok("/api/search", payload | {"rerank": False})
+
+    class InvalidReranker:
+        backend = "test"
+        model = "invalid"
+
+        def score(self, _query: str, passages: list[str]) -> list[float]:
+            if invalid == "short":
+                return [1.0] * (len(passages) - 1)
+            if invalid == "long":
+                return [1.0] * (len(passages) + 1)
+            return [1.0] * (len(passages) - 1) + [float(invalid)]
+
+    workspace.use_reranker(InvalidReranker())
+    actual = workspace.ok("/api/search", payload)
+    assert [h["chunk_id"] for h in actual["results"]] == [h["chunk_id"] for h in plain["results"]]
+    assert actual["settings"]["reranked"] is False
+    assert actual["settings"]["reranker"] is None
+    assert all(h["scores"]["rerank"] is None for h in actual["results"])
+    assert service.NOTICE_INVALID_RERANK in actual["notice"]
+
+
+@pytest.mark.parametrize("count_delta", [-1, 1])
+def test_fastembed_count_mismatch_reaches_controlled_skip(
+    workspace: Workspace, count_delta: int
+) -> None:
+    from passageport.ml.fastembed_backend import FastEmbedReranker
+
+    class MalformedEngine:
+        def rerank(self, _query: str, passages: list[str], *, batch_size: int) -> list[float]:
+            return [1.0] * (len(passages) + count_delta)
+
+    reranker = FastEmbedReranker("test")
+    reranker._engine = MalformedEngine()
+    collection_id, _, _ = handbook(workspace)
+    payload = {"query": "reset link", "collection_id": collection_id}
+    plain = workspace.ok("/api/search", payload | {"rerank": False})
+    workspace.use_reranker(reranker)
+    actual = workspace.ok("/api/search", payload)
+    assert actual["results"] == plain["results"]
+    assert actual["settings"]["reranked"] is False
+    assert service.NOTICE_INVALID_RERANK in actual["notice"]

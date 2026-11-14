@@ -13,6 +13,7 @@ import json
 import os
 import textwrap
 import threading
+import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,12 +27,14 @@ from fastapi.testclient import TestClient
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.engine import make_url
+from sqlalchemy.schema import CreateSchema, DropSchema
+from sqlalchemy.sql import text as sql_text
 
 import passageport.app as app_module
 from passageport.api.ratelimit import reset_rate_limits
 from passageport.auth.throttle import reset_throttles
 from passageport.config import Settings, get_settings
-from passageport.db.schema import metadata
 from passageport.ingest.worker import run_pending_jobs, stop_worker
 from passageport.ml.registry import reset_models
 
@@ -93,7 +96,36 @@ def _clean_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.fixture
-def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., Settings]:
+def isolated_database_url() -> Iterator[str]:
+    """Use a fresh PostgreSQL schema, never drop tables in the supplied database's public schema."""
+    if not TEST_DATABASE_URL:
+        yield ""
+        return
+    url = make_url(Settings(database_url=TEST_DATABASE_URL).resolved_database_url)
+    if url.get_backend_name() != "postgresql":
+        raise ValueError("PP_TEST_DATABASE_URL must point to a disposable PostgreSQL database")
+    schema = f"pp_test_{uuid.uuid4().hex}"
+    admin = create_engine(url)
+    scoped_url = url.update_query_dict({"options": f"-csearch_path={schema}"})
+    probe = create_engine(scoped_url)
+    with admin.begin() as conn:
+        conn.execute(CreateSchema(schema))
+    try:
+        with probe.connect() as conn:
+            assert conn.dialect.name == "postgresql"
+            assert conn.execute(sql_text("SELECT current_schema()")).scalar_one() == schema
+        yield scoped_url.render_as_string(hide_password=False)
+    finally:
+        probe.dispose()
+        with admin.begin() as conn:
+            conn.execute(DropSchema(schema, cascade=True))
+        admin.dispose()
+
+
+@pytest.fixture
+def make_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated_database_url: str
+) -> Callable[..., Settings]:
     """Factory for the process-wide settings.
 
     Settings are applied through ``PP_*`` environment variables so that ``get_settings()`` - used
@@ -101,11 +133,6 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[.
     was built with. Calling the factory again replaces the settings but keeps the data directory
     (and database), which is how the restart tests work.
     """
-    if TEST_DATABASE_URL:
-        engine = create_engine(TEST_DATABASE_URL)
-        metadata.drop_all(engine)
-        engine.dispose()
-
     def factory(**overrides: Any) -> Settings:
         values: dict[str, Any] = {
             "data_dir": tmp_path / "data",
@@ -115,8 +142,8 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[.
             "cookie_secure": False,
             "log_level": "WARNING",
         }
-        if TEST_DATABASE_URL:
-            values["database_url"] = TEST_DATABASE_URL
+        if isolated_database_url:
+            values["database_url"] = isolated_database_url
         values.update(overrides)
         for key, value in values.items():
             monkeypatch.setenv(f"PP_{key.upper()}", _env_value(value))

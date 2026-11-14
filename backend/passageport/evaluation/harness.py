@@ -165,7 +165,9 @@ def peak_rss_mb() -> float:
     info = _psutil().Process().memory_info()
     peak = getattr(info, "peak_wset", None)  # Windows
     if peak is None:
-        import resource
+        import importlib
+
+        resource: Any = importlib.import_module("resource")
 
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
     return round(peak / 1024**2, 1)
@@ -185,11 +187,23 @@ def git_commit() -> str | None:
     return out.stdout.strip() or None
 
 
+def source_hashes() -> dict[str, str]:
+    """Content-address the measured working tree instead of claiming its base commit is exact."""
+    root = Path(__file__).resolve().parents[1]
+    return {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*.py"))
+    }
+
+
 def package_versions() -> dict[str, str]:
     from importlib.metadata import PackageNotFoundError, version
 
     found = {}
-    for name in ("fastembed", "onnxruntime", "numpy", "semchunk", "sentence-transformers", "torch", "transformers"):
+    for name in (
+        "fastembed", "onnxruntime", "numpy", "semchunk", "sentence-transformers", "torch", "transformers",
+        "lancedb", "pyarrow",
+    ):
         try:
             found[name] = version(name)
         except PackageNotFoundError:
@@ -321,11 +335,14 @@ def build_eval_index(
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         engine = create_db_engine(settings)
         with engine.connect() as conn:
-            mapping = {r.id: by_database_id[r.document_id] for r in conn.execute(select(chunks.c.id, chunks.c.document_id))}
+            cached_mapping = {
+                r.id: by_database_id[r.document_id]
+                for r in conn.execute(select(chunks.c.id, chunks.c.document_id))
+            }
         return EvalIndex(
             corpus, engine, settings, user, collection_id, embedder.version, version,
             meta["documents"], meta["pages"], meta["chunks"], meta["chunk_seconds"], meta["embed_seconds"],
-            True, mapping, document_ids,
+            True, cached_mapping, document_ids,
         )
 
     if directory.exists():
@@ -505,6 +522,17 @@ def summarize(index: EvalIndex, outcomes: Sequence[Outcome], *, by_kind: bool = 
         "out_of_scope_flagged": sum(1 for o in unanswerable if not o.confidence.confident),
         "out_of_scope_total": len(unanswerable),
     }
+    if by_kind:
+        summary["observations"] = [
+            {
+                **confidence_record(outcome),
+                "answerable": outcome.query.answerable,
+                "ranked_ids": list(outcome.ranked),
+                "relevant_ids": sorted(index.relevant_ids(outcome.query)) if outcome.query.answerable else [],
+                "latency_ms": round(outcome.latency_ms, 3),
+            }
+            for outcome in outcomes
+        ]
     return summary
 
 

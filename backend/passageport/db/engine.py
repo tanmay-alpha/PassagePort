@@ -15,7 +15,7 @@ def create_db_engine(settings: Settings) -> Engine:
         engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
 
         @event.listens_for(engine, "connect")
-        def _pragmas(dbapi_conn, _record):  # noqa: ANN001
+        def _pragmas(dbapi_conn, _record) -> None:  # noqa: ANN001
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA synchronous=NORMAL")

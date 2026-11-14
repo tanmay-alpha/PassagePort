@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 import pytest
 from conftest import CSRF_HEADERS, SAMPLE_PAGES, build_pdf, create_collection, upload_file
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select, update
 
+from passageport.auth import service
 from passageport.db import repos
-from passageport.db.schema import blobs, chunks, documents
+from passageport.db.schema import blobs, chunks, documents, users, utcnow
 from passageport.ingest.worker import run_pending_jobs
 from passageport.storage.blobs import (
     BlobNotFoundError,
@@ -275,3 +279,122 @@ def test_db_orphan_blobs_are_swept(make_settings, make_app):
     with TestClient(make_app(settings), headers=CSRF_HEADERS):
         assert not store.exists(orphan)
         assert _count(engine, blobs) == 1
+
+
+@pytest.mark.parametrize("target", ["documents", "collections"])
+def test_db_blob_and_owner_deletion_roll_back_together(make_settings, make_app, monkeypatch, target):
+    settings = make_settings(blob_backend="db")
+    app = make_app(settings)
+    engine = app.state.engine
+    with TestClient(app, headers=CSRF_HEADERS, raise_server_exceptions=False) as client:
+        collection = create_collection(client)
+        document = upload_file(client, collection, "kept.txt", b"must survive rollback").json()["document"]
+        remove = DbBlobStore.remove_in_transaction
+
+        def fail_after_deleting_blob(self, conn, keys):
+            remove(self, conn, keys)
+            raise RuntimeError("transaction aborted")
+
+        monkeypatch.setattr(DbBlobStore, "remove_in_transaction", fail_after_deleting_blob)
+        identifier = document["id"] if target == "documents" else collection
+        response = client.delete(f"/api/{target}/{identifier}")
+
+        assert response.status_code == 500
+        assert _count(engine, documents) == 1
+        assert _count(engine, blobs) == 1
+        assert client.get(f"/api/documents/{document['id']}/file").content == b"must survive rollback"
+
+
+def test_db_orphan_sweep_does_not_delete_an_upload_in_flight(make_settings, make_app, monkeypatch):
+    settings = make_settings(blob_backend="db")
+    app = make_app(settings)
+    engine = app.state.engine
+    insert_document = repos.insert_document
+    sweep_started = threading.Event()
+    sweeps = []
+
+    def observe_sweep(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith("DELETE FROM blobs"):
+            sweep_started.set()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        def sweep_before_document_insert(conn, **values):
+            sweep_started.clear()
+            sweeps.append(pool.submit(sweep_orphan_blobs, engine, settings))
+            assert sweep_started.wait(10)
+            assert _count(engine, blobs) == 0
+            return insert_document(conn, **values)
+
+        monkeypatch.setattr(repos, "insert_document", sweep_before_document_insert)
+        event.listen(engine, "before_cursor_execute", observe_sweep)
+        try:
+            with TestClient(app, headers=CSRF_HEADERS) as client:
+                collection = create_collection(client)
+                uploaded = upload_file(client, collection, "kept.txt", b"transactional original")
+                assert uploaded.status_code == 201
+                assert sweeps[0].result(timeout=20) == 0
+                document = uploaded.json()["document"]
+                downloaded = client.get(f"/api/documents/{document['id']}/file")
+                assert downloaded.content == b"transactional original"
+                assert _count(engine, blobs) == _count(engine, documents) == 1
+        finally:
+            event.remove(engine, "before_cursor_execute", observe_sweep)
+
+
+@pytest.mark.parametrize("target", ["collection", "guest"])
+def test_deleting_an_owner_waits_for_its_inflight_upload(make_accounts, monkeypatch, target):
+    """Deletion must collect blob keys only after all earlier uploads of that owner commit."""
+    accounts = make_accounts(blob_backend="db", allow_guests=True, guest_ttl_hours=1)
+    engine = accounts.app.state.engine
+    client = accounts.client() if target == "guest" else accounts.signup("alice")
+    if target == "guest":
+        guest_id = client.post("/api/auth/guest").json()["user"]["id"]
+    collection = create_collection(client)
+    if target == "guest":
+        with engine.begin() as conn:
+            conn.execute(
+                update(users).where(users.c.id == guest_id).values(created_at=utcnow() - timedelta(hours=2))
+            )
+
+    blob_written = threading.Event()
+    allow_commit = threading.Event()
+    deleting = threading.Event()
+    owner_lock_requested = threading.Event()
+    put = DbBlobStore.put
+
+    def hold_upload(self, key, data, conn=None):
+        put(self, key, data, conn)
+        blob_written.set()
+        assert allow_commit.wait(10)
+
+    def observe_lock(_conn, _cursor, statement, _parameters, _context, _many):
+        if deleting.is_set() and "users" in statement and (
+            "FOR UPDATE" in statement or statement.startswith("UPDATE users")
+        ):
+            owner_lock_requested.set()
+
+    def remove_owner():
+        deleting.set()
+        if target == "guest":
+            return service.purge_expired_guests(engine, accounts.settings)
+        return client.delete(f"/api/collections/{collection}").status_code
+
+    monkeypatch.setattr(DbBlobStore, "put", hold_upload)
+    event.listen(engine, "before_cursor_execute", observe_lock)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            uploading = pool.submit(
+                upload_file, client, collection, "racing.txt", b"never orphan these bytes"
+            )
+            assert blob_written.wait(10)
+            deletion = pool.submit(remove_owner)
+            try:
+                assert owner_lock_requested.wait(10)
+            finally:
+                allow_commit.set()
+            assert uploading.result(timeout=20).status_code == 201
+            assert deletion.result(timeout=20) == (1 if target == "guest" else 204)
+    finally:
+        allow_commit.set()
+        event.remove(engine, "before_cursor_execute", observe_lock)
+    assert _count(engine, documents) == _count(engine, blobs) == 0

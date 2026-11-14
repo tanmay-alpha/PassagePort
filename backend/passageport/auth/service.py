@@ -272,9 +272,12 @@ def purge_expired_guests(engine: Engine, settings: Settings) -> int:
     cutoff = utcnow() - timedelta(hours=settings.guest_ttl_hours)
     store = get_blob_store(settings, engine)
     with engine.begin() as conn:
+        expired_where = (users.c.is_guest.is_(True)) & (users.c.created_at < cutoff)
+        if conn.dialect.name == "sqlite":
+            conn.execute(update(users).where(expired_where).values(is_guest=users.c.is_guest))
         expired = list(
             conn.execute(
-                select(users.c.id).where(users.c.is_guest.is_(True), users.c.created_at < cutoff)
+                select(users.c.id).where(expired_where).order_by(users.c.id).with_for_update()
             ).scalars()
         )
         if not expired:

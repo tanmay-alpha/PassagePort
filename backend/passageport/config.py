@@ -14,7 +14,9 @@ ALLOWED_EXTENSIONS: tuple[str, ...] = (".pdf", ".txt", ".md", ".docx")
 
 class Settings(BaseSettings):
     # env_ignore_empty: `PP_STATIC_DIR=` must mean "unset", not Path("."), which would serve the CWD.
-    model_config = SettingsConfigDict(env_prefix="PP_", env_file=".env", extra="ignore", env_ignore_empty=True)
+    model_config = SettingsConfigDict(
+        env_prefix="PP_", env_file=".env", extra="ignore", env_ignore_empty=True
+    )
 
     # --- storage -----------------------------------------------------------
     data_dir: Path = Path("./data")
@@ -52,7 +54,7 @@ class Settings(BaseSettings):
     reranker_backend: Literal["fastembed", "sentence-transformers", "none"] = "fastembed"
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     model_cache_dir: Path | None = None
-    embed_batch_size: int = 32
+    embed_batch_size: int = Field(default=32, ge=1)
 
     # --- chunking ----------------------------------------------------------
     chunk_max_tokens: int = 256
@@ -68,8 +70,9 @@ class Settings(BaseSettings):
     rerank_candidates: int = 20
     bm25_k1: float = 1.2
     bm25_b: float = 0.75
-    # Evidence below these thresholds is reported as low-confidence / insufficient.
-    min_vector_similarity: float = 0.35
+    # Calibrated for BGE-small on the mini corpus; see docs/SEARCH_EVALUATION.md.
+    # This is a retrieval sufficiency heuristic, not a probability or factual-verification score.
+    min_vector_similarity: float = 0.70
     min_rerank_score: float = 0.0
 
     # --- optional LLM (any OpenAI-compatible chat-completions endpoint) -----
@@ -82,8 +85,8 @@ class Settings(BaseSettings):
     # --- jobs --------------------------------------------------------------
     # thread: in-process worker thread. manual: nothing runs until run_pending_jobs() (tests).
     job_mode: Literal["thread", "manual"] = "thread"
-    job_lease_seconds: int = 60  # renewed by a heartbeat while a job runs
-    job_max_attempts: int = 2
+    job_lease_seconds: int = Field(default=60, ge=1)  # renewed by a heartbeat while a job runs
+    job_max_attempts: int = Field(default=2, ge=1)
 
     log_level: str = "INFO"
     # Directory with the built frontend (index.html + assets). Served at / when it exists.

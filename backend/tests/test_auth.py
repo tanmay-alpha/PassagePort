@@ -336,7 +336,6 @@ def test_concurrent_login_burst_is_throttled_before_any_hashing(accounts, monkey
     """Thirty guesses fired at once: only ``limit`` of them may reach the password hash. Counting
     failures after verification would let the whole burst through."""
     accounts.signup("alice")
-    engine = accounts.app.state.engine
     verified: list[int] = []
     real_verify = service.verify_password
 
@@ -348,18 +347,9 @@ def test_concurrent_login_burst_is_throttled_before_any_hashing(accounts, monkey
     monkeypatch.setattr(service, "verify_password", slow_verify)
 
     def guess(index: int) -> int:
-        try:
-            service.login(
-                engine,
-                accounts.settings,
-                username="alice",
-                password=f"wrong password {index}",
-                address="203.0.113.7",
-                previous_secret=None,
-            )
-        except ApiError as exc:
-            return exc.status_code
-        return 200
+        return accounts.client().post(
+            "/api/auth/login", json=_credentials("alice", f"wrong password {index}")
+        ).status_code
 
     statuses = burst(30, guess)
 

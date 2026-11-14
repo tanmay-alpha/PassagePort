@@ -35,11 +35,12 @@ def lock_user(conn: Connection, user_id: str) -> None:
     """Serialize the rest of this transaction with every other transaction that locks this user.
 
     Quota checks are "count, then insert": without this, concurrent requests of one user could
-    all read the same count and each add one more. A no-op UPDATE of the user row is the portable
-    lock: PostgreSQL holds the row lock until commit, and on SQLite the write starts the (single)
-    write transaction, so the counts read afterwards cannot change underneath the caller.
+    all read the same count and each add one more. PostgreSQL holds the user row lock until commit.
+    SQLite ignores FOR UPDATE, so first acquire its database-wide write lock with a no-op UPDATE.
     """
-    conn.execute(update(users).where(users.c.id == user_id).values(is_guest=users.c.is_guest))
+    if conn.dialect.name == "sqlite":
+        conn.execute(update(users).where(users.c.id == user_id).values(is_guest=users.c.is_guest))
+    conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update()).scalar_one()
 
 
 # --------------------------------------------------------------------------- collections
@@ -171,6 +172,7 @@ def update_collection(
 
 def delete_collection(conn: Connection, owner_id: str, collection_id: str) -> list[str]:
     """Delete a collection with everything in it. Returns the blob keys to remove after commit."""
+    lock_user(conn, owner_id)  # include every upload committed before collecting its blob keys
     owned = conn.execute(
         select(collections.c.id).where(collections.c.id == collection_id, collections.c.owner_id == owner_id)
     ).first()
