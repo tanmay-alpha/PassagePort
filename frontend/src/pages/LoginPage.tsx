@@ -18,7 +18,7 @@ const PASSWORD_MAX = 200
 
 /** Only same-origin paths are accepted as a post-login destination. */
 function safeNext(next: string | null): string {
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/login') ? next : '/'
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') && !next.startsWith('/login') ? next : '/'
 }
 
 export function Component() {

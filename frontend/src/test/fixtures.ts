@@ -268,7 +268,7 @@ export function makeEvalReport(): EvalReport {
         reranker: 'Xenova/ms-marco-MiniLM-L-6-v2',
         indexing_chunks_per_second: 85.5,
         runs: [
-          { name: 'keyword', recall_at_k: { '1': 0.52, '5': 0.8 }, precision_at_k: { '1': 0.52, '5': 0.16 }, mrr: 0.641, latency_ms_p50: 1.2, latency_ms_p95: 2.5 },
+          { name: 'keyword', recall_at_k: { '1': 0.52, '5': 0.8 }, precision_at_k: { '1': 0.52, '5': 0.16 }, mrr: 0.641, ndcg_at_10: null, latency_ms_p50: 1.2, latency_ms_p95: 2.5 },
           { name: 'hybrid+rerank', recall_at_k: { '1': 0.74, '5': 0.94 }, precision_at_k: { '1': 0.74, '5': 0.19 }, mrr: 0.827, ndcg_at_10: 0.86, latency_ms_p50: 41, latency_ms_p95: 77 },
         ],
       },

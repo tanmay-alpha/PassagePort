@@ -52,8 +52,8 @@ export interface ApiTokenOut {
   id: string
   name: string
   created_at: string
-  /** Only present in the creation response. */
-  token?: string | null
+  /** Secret is returned only on creation; list responses contain null. */
+  token: string | null
 }
 
 // ----------------------------------------------------------------------------- system
@@ -61,9 +61,9 @@ export interface ApiTokenOut {
 export interface ModelInfo {
   backend: string
   model: string
-  dimensions?: number | null
+  dimensions: number | null
   loaded: boolean
-  enabled?: boolean
+  enabled: boolean
 }
 
 export interface LimitsOut {
@@ -201,13 +201,13 @@ export interface StageScore {
 
 export interface HitScores {
   /** BM25 */
-  keyword?: StageScore | null
+  keyword: StageScore | null
   /** cosine similarity */
-  semantic?: StageScore | null
+  semantic: StageScore | null
   /** weighted reciprocal-rank fusion score */
-  fused?: number | null
+  fused: number | null
   /** cross-encoder logit */
-  rerank?: number | null
+  rerank: number | null
 }
 
 /** A citation target. `char_start`/`char_end` index into the text of the page (code points). */
@@ -403,7 +403,7 @@ export interface EvalRun {
   recall_at_k: Record<string, number>
   precision_at_k: Record<string, number>
   mrr: number
-  ndcg_at_10?: number | null
+  ndcg_at_10: number | null
   latency_ms_p50: number
   latency_ms_p95: number
 }

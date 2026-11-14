@@ -1,6 +1,6 @@
 import * as RadixDialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useRef } from 'react'
 
 import { cx } from '@/lib/cx'
 
@@ -11,6 +11,22 @@ const OVERLAY = 'fixed inset-0 z-50 bg-overlay animate-fade-in'
 
 const CLOSE =
   'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors duration-100 hover:bg-subtle hover:text-ink'
+
+/** These controlled surfaces have no Radix Trigger to restore focus to. */
+function useOpenerFocus() {
+  const opener = useRef<HTMLElement | null>(null)
+  return {
+    onOpenAutoFocus() {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    },
+    onCloseAutoFocus(event: Event) {
+      if (opener.current?.isConnected) {
+        event.preventDefault()
+        opener.current.focus()
+      }
+    },
+  }
+}
 
 export interface DialogProps {
   open: boolean
@@ -24,11 +40,13 @@ export interface DialogProps {
 
 /** Modal dialog: focus is trapped inside, Escape and the overlay close it, focus returns to the opener. */
 export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'sm' }: DialogProps) {
+  const focusEvents = useOpenerFocus()
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className={OVERLAY} />
         <RadixDialog.Content
+          {...focusEvents}
           // Radix warns unless a dialog without a description opts out explicitly.
           {...(description ? {} : { 'aria-describedby': undefined })}
           className={cx(
@@ -113,11 +131,13 @@ export interface SheetProps {
 
 /** Edge-anchored modal surface: the navigation drawer and the mobile document preview. */
 export function Sheet({ open, onOpenChange, title, showTitle = false, side, children }: SheetProps) {
+  const focusEvents = useOpenerFocus()
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className={OVERLAY} />
         <RadixDialog.Content
+          {...focusEvents}
           aria-describedby={undefined}
           className={cx(
             'fixed z-50 flex flex-col bg-bg',

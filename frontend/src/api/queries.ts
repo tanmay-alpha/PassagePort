@@ -57,7 +57,7 @@ export function isIndexing(document: Pick<DocumentOut, 'status'>): boolean {
 
 /** Results computed from the index are outdated once documents change. */
 function invalidateRetrieval(queryClient: QueryClient): void {
-  for (const key of RETRIEVAL_KEYS) queryClient.removeQueries({ queryKey: [key] })
+  for (const key of RETRIEVAL_KEYS) void queryClient.invalidateQueries({ queryKey: [key] })
 }
 
 /** Refreshes everything derived from the set of documents (counts, usage, cached results). */
@@ -198,10 +198,21 @@ export function useDeleteCollection() {
 // ----------------------------------------------------------------------------- documents
 
 export function useDocuments(collectionId: string | undefined) {
+  const queryClient = useQueryClient()
   return useQuery({
     queryKey: keys.documents(collectionId ?? ''),
-    queryFn: ({ signal }) =>
-      api<DocumentOut[]>(`/collections/${seg(collectionId ?? '')}/documents`, { signal }),
+    queryFn: async ({ signal, queryKey }) => {
+      const documents = await api<DocumentOut[]>(`/collections/${seg(collectionId ?? '')}/documents`, { signal })
+      // The query cache survives navigation, unlike component-local completion tracking.
+      const previous = queryClient.getQueryData<DocumentOut[]>(queryKey)
+      const completed = documents.some((document) => {
+        const previousDocument = previous?.find((item) => item.id === document.id) ??
+          queryClient.getQueryData<DocumentOut>(keys.document(document.id))
+        return previousDocument !== undefined && isIndexing(previousDocument) && !isIndexing(document)
+      })
+      if (completed) invalidateLibrary(queryClient)
+      return documents
+    },
     enabled: Boolean(collectionId),
     // Poll only while the server is still working on something in this collection.
     refetchInterval: (query) => (query.state.data?.some(isIndexing) ? INDEXING_POLL_MS : false),
@@ -209,9 +220,16 @@ export function useDocuments(collectionId: string | undefined) {
 }
 
 export function useDocument(documentId: string | undefined) {
+  const queryClient = useQueryClient()
   return useQuery({
     queryKey: keys.document(documentId ?? ''),
-    queryFn: ({ signal }) => api<DocumentOut>(`/documents/${seg(documentId ?? '')}`, { signal }),
+    queryFn: async ({ signal, queryKey }) => {
+      const document = await api<DocumentOut>(`/documents/${seg(documentId ?? '')}`, { signal })
+      const previous = queryClient.getQueryData<DocumentOut>(queryKey) ??
+        queryClient.getQueryData<DocumentOut[]>(keys.documents(document.collection_id))?.find((item) => item.id === document.id)
+      if (previous !== undefined && isIndexing(previous) && !isIndexing(document)) invalidateLibrary(queryClient)
+      return document
+    },
     enabled: Boolean(documentId),
     refetchInterval: (query) => (query.state.data && isIndexing(query.state.data) ? INDEXING_POLL_MS : false),
   })

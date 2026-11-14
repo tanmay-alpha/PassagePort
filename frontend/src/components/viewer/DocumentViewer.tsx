@@ -233,7 +233,7 @@ function PageNav({ page, pageCount, noun, outline, sections, onPageChange }: Pag
         disabled={page <= 1}
         onClick={() => onPageChange(page - 1)}
       />
-      <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
+      <label className="flex shrink-0 items-center gap-1.5 text-[13px] whitespace-nowrap text-ink-2">
         {capitalNoun}
         {/* Uncontrolled and re-keyed per page: typing never fights the committed value. */}
         <Input
@@ -241,13 +241,14 @@ function PageNav({ page, pageCount, noun, outline, sections, onPageChange }: Pag
           type="text"
           inputMode="numeric"
           defaultValue={page}
-          className="h-8 w-14 px-2 text-center tabular-nums"
+          className="h-8 shrink-0 px-2 text-center tabular-nums"
+          style={{ width: '3.5rem' }}
           onBlur={(event) => commit(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') commit(event.currentTarget.value)
           }}
         />
-        <span className="tabular-nums">of {pageCount}</span>
+        <span className="whitespace-nowrap tabular-nums">of {pageCount}</span>
       </label>
       <IconButton
         size="sm"

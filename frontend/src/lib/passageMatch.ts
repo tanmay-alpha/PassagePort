@@ -20,11 +20,6 @@ const DASHES = /[\u2010-\u2015\u2212]/g
 const SINGLE_QUOTES = /[\u2018\u2019\u201A\u201B\u2032]/g
 const DOUBLE_QUOTES = /[\u201C\u201D\u201E\u201F\u2033]/g
 
-/** Length of the head/tail anchors used when the passage does not match as one piece. */
-const ANCHOR = 48
-/** How far the anchored span may deviate from the passage length and still be trusted. */
-const SPAN_TOLERANCE = 0.2
-
 function fold(char: string): string {
   return char
     .normalize('NFKC')
@@ -75,17 +70,11 @@ function buildHaystack(items: readonly string[]): Haystack {
 
 function locate(haystack: string, needle: string): [number, number] | null {
   const exact = haystack.indexOf(needle)
-  if (exact >= 0) return [exact, exact + needle.length]
-  // The middle may differ slightly (e.g. a running header pdf.js reads mid-paragraph).
-  // Accept the span between an exact head and an exact tail only if its length is plausible.
-  if (needle.length < ANCHOR * 2) return null
-  const head = haystack.indexOf(needle.slice(0, ANCHOR))
-  if (head < 0) return null
-  const tail = haystack.indexOf(needle.slice(-ANCHOR), head + ANCHOR)
-  if (tail < 0) return null
-  const end = tail + ANCHOR
-  const deviation = Math.abs(end - head - needle.length) / needle.length
-  return deviation <= SPAN_TOLERANCE ? [head, end] : null
+  if (exact < 0) return null
+  // PDF and server extraction orders can differ. Without a unique full-text match,
+  // offsets cannot safely identify a run: let the Text tab show the exact citation.
+  if (haystack.indexOf(needle, exact + 1) >= 0) return null
+  return [exact, exact + needle.length]
 }
 
 /**

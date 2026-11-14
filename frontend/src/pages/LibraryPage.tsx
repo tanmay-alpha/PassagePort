@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type DragEvent, type FormEvent, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import { documentFileUrl, errorMessage } from '@/api/client'
@@ -65,7 +65,6 @@ const STATUS_OPTIONS: Array<SelectOption<StatusFilter>> = [
 
 function Library({ collection }: { collection: CollectionOut }) {
   useDocumentTitle(collection.name)
-  const queryClient = useQueryClient()
   const documents = useDocuments(collection.id)
   const system = useSystem()
   const [text, setText] = useState('')
@@ -73,13 +72,7 @@ function Library({ collection }: { collection: CollectionOut }) {
   const [renaming, setRenaming] = useState<DocumentOut | null>(null)
   const [deleting, setDeleting] = useState<DocumentOut | null>(null)
 
-  // When the last document leaves the queue, refresh what depends on the index.
   const indexing = documents.data?.some(isIndexing) ?? false
-  const wasIndexing = useRef(false)
-  useEffect(() => {
-    if (wasIndexing.current && !indexing) invalidateLibrary(queryClient)
-    wasIndexing.current = indexing
-  }, [indexing, queryClient])
 
   const filtered = useMemo(() => {
     const needle = text.trim().toLowerCase()

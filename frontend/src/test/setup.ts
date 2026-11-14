@@ -2,13 +2,16 @@ import '@testing-library/jest-dom/vitest'
 
 import { Blob as NodeBlob, File as NodeFile } from 'node:buffer'
 
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
 
 import { reportReachability } from '@/lib/connectivity'
 
 import { server } from './server'
 import { setViewport } from './viewport'
+
+// Cold lazy-route imports can exceed one second on Windows when test workers run together.
+configure({ asyncUtilTimeout: 5000 })
 
 // Browser APIs jsdom does not implement but Radix and the viewer rely on.
 class ResizeObserverStub {
@@ -23,11 +26,18 @@ Element.prototype.hasPointerCapture ??= () => false
 Element.prototype.setPointerCapture ??= () => {}
 Element.prototype.releasePointerCapture ??= () => {}
 
-// MSW models intercepted requests with Node's fetch classes, which cannot read jsdom's own
-// File/Blob/FormData (a multipart upload would arrive as an empty, unnamed blob). Use Node's
-// implementations in tests so the handlers see the bytes the browser would send.
+// Fetch needs Node's multipart implementation, whereas React's form handling constructs
+// FormData with an HTMLFormElement (an overload Node does not support). Keep both paths.
+const BrowserFormData = globalThis.FormData
 const nativeForm = await new Response(new URLSearchParams()).formData()
-Object.assign(globalThis, { Blob: NodeBlob, File: NodeFile, FormData: nativeForm.constructor })
+const FetchFormData = new Proxy(nativeForm.constructor as typeof FormData, {
+  construct(target, args) {
+    return args[0] instanceof HTMLFormElement
+      ? Reflect.construct(BrowserFormData, args)
+      : Reflect.construct(target, args)
+  },
+})
+Object.assign(globalThis, { Blob: NodeBlob, File: NodeFile, FormData: FetchFormData })
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 

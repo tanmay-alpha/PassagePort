@@ -36,7 +36,8 @@ describe('search lab', () => {
     for (const stage of ['Semantic', 'Fused', 'Reranked']) {
       expect(within(screen.getByRole('region', { name: stage })).getAllByRole('listitem')).toHaveLength(2)
     }
-    expect(within(keyword).getByText('BM25 7.42')).toBeInTheDocument()
+    const firstKeyword = within(keyword).getByRole('button', { name: /Either party may terminate/ })
+    expect(within(firstKeyword).getByText('BM25 7.42')).toBeInTheDocument()
 
     // Tokenized query terms and measured latency.
     expect(within(screen.getByRole('list', { name: 'Tokenized query terms' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['termination', 'notice'])
