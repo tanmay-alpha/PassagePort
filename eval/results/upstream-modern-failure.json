@@ -1,0 +1,17 @@
+{
+  "status": "failed_before_benchmark",
+  "scope": "Upstream model prerequisite in PassagePort; not an original-pipeline measurement",
+  "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 ./.venv-heavy/Scripts/python.exe -u -m passageport.evaluation.run evaluate --datasets mini --embedding sentence-transformers:Alibaba-NLP/gte-multilingual-base --reranker sentence-transformers:Alibaba-NLP/gte-multilingual-reranker-base --runs semantic+rerank --chunk-tokens 512 --candidates 20 --rerank-candidates 20 --label 'Upstream models in PassagePort (not original pipeline)' --out ../eval/results/upstream-models.json",
+  "packages": {
+    "torch": "2.15.0+cpu",
+    "sentence-transformers": "6.3.0",
+    "transformers": "5.22.2",
+    "huggingface-hub": "1.33.0",
+    "tokenizers": "0.23.3"
+  },
+  "error": "IndexError: index 6546033672192 is out of bounds for dimension 0 with size 5",
+  "location": "Alibaba-NLP/new-impl@40ced75c3017eb27626c9d4ea981bde21a2662f4/modeling.py:392, rope_cos[position_ids].unsqueeze(2)",
+  "log": "D:/tmp/passageport-eval-upstream.log",
+  "comparative_claims": false,
+  "resolution": "Isolate the upstream lockfile-compatible stack in .venv-heavy using eval/upstream-constraints.txt; leave the default ONNX environment unchanged."
+}
