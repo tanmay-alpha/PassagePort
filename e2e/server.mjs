@@ -50,9 +50,12 @@ export class BackendServer {
     }
     await assertPortFree(PORT);
     this.log = "";
+    const python = process.platform === "win32"
+      ? join(backendDir, ".venv", "Scripts", "python.exe")
+      : join(backendDir, ".venv", "bin", "python");
     this.child = spawn(
-      "uv",
-      ["run", "--no-sync", "uvicorn", "passageport.main:app", "--host", "127.0.0.1", "--port", String(PORT)],
+      python,
+      ["-m", "uvicorn", "passageport.main:app", "--host", "127.0.0.1", "--port", String(PORT)],
       {
         cwd: backendDir,
         env: {
@@ -71,7 +74,7 @@ export class BackendServer {
           ...this.extraEnv,
         },
         stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32",
+        windowsHide: true,
       },
     );
     const collect = (chunk) => {
@@ -110,7 +113,7 @@ export class BackendServer {
     if (!child || hasExited(child)) return;
     const exited = new Promise((r) => child.once("exit", r));
     if (process.platform === "win32") {
-      // `shell: true` wraps the server in cmd.exe; kill the whole tree.
+      // Kill parser subprocesses too; Windows has no POSIX process-group signals.
       spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
     } else {
       child.kill("SIGTERM");
