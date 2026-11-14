@@ -16,22 +16,33 @@ docker compose up --build        # http://localhost:8000
 ```
 
 - The port is published on `127.0.0.1` only; local mode has no login.
-- Data lives in the named volume `passageport-data` (SQLite database + uploaded files).
+- Data lives in Compose volume `passageport_passageport-data` (SQLite database + uploaded files).
 - The default models are baked into the image, so it starts without network access. Build with
   `PRELOAD_MODELS=0` for a smaller image that downloads them on first use.
 - Optional PostgreSQL: `docker compose --profile postgres up` and set `PP_DATABASE_URL` in `.env`
   (see the comments in `docker-compose.yml`).
 
-**Backup and restore.** Everything is in the volume:
+**Backup and restore.** With the default Compose project name, back up the complete volume while
+the app is stopped. Changing `COMPOSE_PROJECT_NAME` also changes the volume name.
 
 ```bash
-# backup (stop the container first, or use sqlite3 ".backup" for a hot copy)
-docker run --rm -v passageport-data:/data -v "$PWD":/backup alpine \
+docker compose stop passageport
+docker run --rm -v passageport_passageport-data:/data:ro -v "$PWD":/backup alpine \
   tar czf /backup/passageport-backup.tgz -C /data .
-# restore
-docker run --rm -v passageport-data:/data -v "$PWD":/backup alpine \
-  sh -c "rm -rf /data/* && tar xzf /backup/passageport-backup.tgz -C /data"
+docker compose start passageport
 ```
+
+Restore to a **new, empty volume** first; do not delete a working store to test a backup:
+
+```bash
+docker volume create passageport-restored
+docker run --rm -v passageport-restored:/data -v "$PWD":/backup:ro alpine \
+  tar xzf /backup/passageport-backup.tgz -C /data
+```
+
+Point the service's `/data` mount at `passageport-restored`, start it, and check the library,
+original downloads and a saved citation before switching over. Keep the previous volume until
+the restored instance has been verified.
 
 Embeddings are derived data: if the model changes, documents are flagged *stale* and re-indexed
 from the stored originals.
@@ -105,9 +116,9 @@ Any platform that runs a container works:
 
 - **With a persistent disk** (Fly.io volume, Render paid disk, a VPS): mount it at `/data`, keep
   SQLite, set `PP_AUTH_MODE=accounts`, put TLS in front.
-- **Without a disk** (Render free, Cloud Run, Koyeb): use PostgreSQL + `PP_BLOB_BACKEND=db` as
-  above. On Render's free tier (512 MB RAM) the default models fit, but there is little headroom;
-  set `PP_RERANKER_BACKEND=none` if the instance is killed for memory.
+- **Without a disk** (Render free, Cloud Run, Koyeb): use PostgreSQL + `PP_BLOB_BACKEND=db`.
+  The default real-model image was tested with a 2 GiB memory cap and one CPU. A 512 MB host
+  has not been validated and is not a supported capacity claim; measure before choosing it.
 
 Behind a reverse proxy set `FORWARDED_ALLOW_IPS` to the proxy's address so client IPs used by the
 login throttle are correct.
