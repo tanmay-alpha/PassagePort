@@ -3,23 +3,34 @@ import { useId, useMemo, useState } from 'react'
 
 import type { LabOut } from '@/api/types'
 import { SegmentedControl } from '@/components/ui/Form'
+import { ScrollRegion } from '@/components/ui/ScrollRegion'
 import { cx } from '@/lib/cx'
 import { buildRankChart, type ChartSeries, type RankChartData } from '@/lib/rankChart'
 
 const PALETTE_SIZE = 6
 const WIDTH = 720
 const LEFT = 34
-const RIGHT = 190
+const RIGHT = 265
 const TOP = 34
 const ROW = 26
-const LABEL_CHARS = 26
+const LABEL_CHARS = 38
+const LOCATOR_CHARS = 18
 
 function seriesColor(series: ChartSeries): string {
   return `var(--pp-chart-${(series.colorIndex % PALETTE_SIZE) + 1})`
 }
 
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+/** Fits "title · Page 3" in the label column, cutting the title before the locator. */
 function shorten(text: string): string {
-  return text.length > LABEL_CHARS ? `${text.slice(0, LABEL_CHARS - 1)}…` : text
+  if (text.length <= LABEL_CHARS) return text
+  const cut = text.lastIndexOf(' · ')
+  if (cut <= 0) return clip(text, LABEL_CHARS)
+  const locator = clip(text.slice(cut + 3), LOCATOR_CHARS)
+  return `${clip(text.slice(0, cut), LABEL_CHARS - locator.length - 3)} · ${locator}`
 }
 
 export interface RankChartProps {
@@ -72,12 +83,13 @@ function BumpChart({ chart, activeId, onActive }: { chart: RankChartData; active
   const last = stages.length - 1
 
   return (
-    <div className="mt-3 overflow-x-auto rounded-xl border border-line bg-surface p-3" data-testid="rank-chart">
+    <ScrollRegion label="Rank movement chart" className="mt-3 overflow-x-auto rounded-xl border border-line bg-surface p-3" data-testid="rank-chart">
       <svg
         viewBox={`0 0 ${WIDTH} ${height}`}
         role="img"
         aria-labelledby={titleId}
-        className="block h-auto w-full min-w-[540px] font-sans"
+        // The SVG scales with its box; bound it so labels stay between ~10px and ~14px.
+        className="mx-auto block h-auto w-full max-w-[880px] min-w-[640px] font-sans"
         onMouseLeave={() => onActive(null)}
       >
         <title id={titleId}>
@@ -160,6 +172,7 @@ function BumpChart({ chart, activeId, onActive }: { chart: RankChartData; active
                   fontWeight={active ? 600 : 400}
                   fill={active ? 'var(--pp-ink)' : 'var(--pp-ink-2)'}
                 >
+                  <title>{item.label}</title>
                   {shorten(item.label)}
                 </text>
               ) : null}
@@ -170,7 +183,7 @@ function BumpChart({ chart, activeId, onActive }: { chart: RankChartData; active
       <p className="mt-2 text-xs text-ink-3">
         Hollow points: rank inside a stage. Filled points: final rank. Dashed lines skip a stage that did not return the passage.
       </p>
-    </div>
+    </ScrollRegion>
   )
 }
 

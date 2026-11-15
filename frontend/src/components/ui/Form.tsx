@@ -4,10 +4,13 @@ import { type ComponentProps, type KeyboardEvent, type ReactNode, useId } from '
 
 import { cx } from '@/lib/cx'
 
-const CONTROL =
-  'w-full rounded-md border border-line-strong bg-surface text-sm text-ink placeholder:text-ink-3 ' +
+/** Shared control look without a width, so callers that size a control are not fighting `w-full`. */
+const CONTROL_LOOK =
+  'rounded-md border border-line-strong bg-surface text-sm text-ink placeholder:text-ink-3 ' +
   'transition-colors duration-100 hover:border-ink-3 disabled:opacity-60 ' +
   'aria-[invalid=true]:border-danger focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent'
+
+const CONTROL = `w-full ${CONTROL_LOOK}`
 
 export function Input({ className, type = 'text', ...rest }: ComponentProps<'input'>) {
   return <input type={type} className={cx(CONTROL, 'h-9 px-3', className)} {...rest} />
@@ -87,7 +90,7 @@ export function Select<T extends string>({ value, onValueChange, options, classN
       <RadixSelect.Trigger
         id={id}
         aria-label={aria['aria-label']}
-        className={cx(CONTROL, 'inline-flex h-9 items-center justify-between gap-2 px-3 text-left', className)}
+        className={cx(CONTROL_LOOK, 'inline-flex h-9 items-center justify-between gap-2 px-3 text-left', className ?? 'w-full')}
       >
         <RadixSelect.Value />
         <RadixSelect.Icon>
@@ -189,6 +192,8 @@ export function Switch({ checked, onCheckedChange, className, disabled, ...rest 
       onClick={() => onCheckedChange(!checked)}
       className={cx(
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-100 disabled:opacity-50',
+        // Invisible 44px-tall hit area so the switch is easy to tap without growing the layout.
+        "before:absolute before:-inset-x-1 before:-inset-y-3 before:content-['']",
         checked ? 'border-accent bg-accent' : 'border-line-strong bg-subtle',
         className,
       )}

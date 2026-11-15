@@ -11,7 +11,8 @@ export interface HitStripProps {
   onSelect: (passage: Passage) => void
 }
 
-const TICK = 18
+/** 24px: the minimum target size (WCAG 2.5.8) so ticks stay tappable on touch screens. */
+const TICK = 24
 const GAP = 2
 
 /**
@@ -37,7 +38,7 @@ export function HitStrip({ documentId, pageCount, related, currentId, onSelect }
         <span>{`${plural(hits.length, 'result')} in this document`}</span>
         <span className="tabular-nums">{`${pageCount} ${locatorNoun(hits[0].passage.locator_kind, pageCount)}`}</span>
       </p>
-      <ol aria-label="Results in this document" className="relative h-6 rounded-md bg-subtle">
+      <ol aria-label="Results in this document" className="relative h-8 rounded-md bg-subtle">
         {[...byPage.entries()].flatMap(([page, group]) =>
           group.map(({ passage, number }, index) => {
             const current = passage.chunk_id === currentId
@@ -55,7 +56,7 @@ export function HitStrip({ documentId, pageCount, related, currentId, onSelect }
                   title={`Result ${number} · ${noun} ${passage.page_number}`}
                   onClick={() => onSelect(passage)}
                   className={cx(
-                    'flex h-[18px] min-w-[18px] items-center justify-center rounded px-0.5 text-[10px] font-semibold tabular-nums transition-transform duration-100 hover:scale-110',
+                    'flex h-6 min-w-6 items-center justify-center rounded px-0.5 text-[11px] font-semibold tabular-nums transition-transform duration-100 hover:scale-110',
                     current ? 'bg-accent text-on-accent' : 'bg-mark text-ink shadow-[inset_0_-2px_0_var(--pp-mark-strong)]',
                   )}
                 >

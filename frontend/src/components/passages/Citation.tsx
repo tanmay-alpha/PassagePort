@@ -35,6 +35,7 @@ export function CitationChip({ refNumber, evidence, onActivate, active = false, 
   // Focus that follows a press (mouse or tap) is not keyboard focus: the click opens the
   // source right away, so no preview is shown for it.
   const pressed = useRef(false)
+  const chip = useRef<HTMLButtonElement>(null)
   const excerptId = useId()
   const toast = useToast()
   useEffect(() => () => window.clearTimeout(timer.current), [])
@@ -67,6 +68,7 @@ export function CitationChip({ refNumber, evidence, onActivate, active = false, 
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Anchor asChild>
         <button
+          ref={chip}
           type="button"
           onClick={() => {
             setOpen(false)
@@ -103,6 +105,11 @@ export function CitationChip({ refNumber, evidence, onActivate, active = false, 
           // Focus stays on the chip: the preview is supplementary, Enter still opens the source.
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
+          // The chip is an anchor, not a Radix trigger, so the layer would treat the very focus
+          // that opened it (still dispatching when the layer mounts) as focus moving outside.
+          onInteractOutside={(event) => {
+            if (event.target instanceof Node && chip.current?.contains(event.target)) event.preventDefault()
+          }}
           onPointerEnter={() => window.clearTimeout(timer.current)}
           onPointerLeave={() => schedule(false, CLOSE_DELAY_MS)}
           aria-label={`Citation ${refNumber}`}
@@ -118,7 +125,7 @@ export function CitationChip({ refNumber, evidence, onActivate, active = false, 
             <span className="shrink-0 text-ink-3">{locatorLabel(evidence)}</span>
           </p>
           <div id={excerptId}>
-            <PassageText text={evidence.text} terms={evidence.matched_terms} className="mt-2 line-clamp-6 text-[0.9rem] leading-relaxed" />
+            <PassageText text={evidence.text} terms={evidence.matched_terms} clamped className="mt-2 text-[0.9rem] leading-relaxed" />
           </div>
           <div className="mt-3 flex items-center justify-end gap-1.5 border-t border-line pt-2.5">
             <Button

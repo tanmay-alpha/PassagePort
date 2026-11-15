@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Download, FileWarning, Maximize2, X } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, type Ref, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import { documentFileUrl, errorMessage, isApiError } from '@/api/client'
@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { cx } from '@/lib/cx'
 import { formatBytes, kindLabel, locatorNoun } from '@/lib/format'
-import { splitByCodePoints, type TextRange } from '@/lib/text'
+import { reflowSoftBreaks, splitByCodePoints, type TextRange } from '@/lib/text'
 import { viewerPath } from '@/lib/workspace'
 
 import { HitStrip } from './HitStrip'
@@ -367,18 +367,28 @@ function TextPane({ documentId, page, highlight }: { documentId: string; page: n
       ) : (
         <div className="pp-passage whitespace-pre-wrap text-ink" data-testid="page-text">
           {located.state === 'found' ? (
-            <>
-              {located.range.before}
-              <mark ref={mark} className="pp-cited" data-testid="cited-passage">
-                {located.range.match}
-              </mark>
-              {located.range.after}
-            </>
+            <ReflowedRange range={located.range} markRef={mark} />
           ) : (
-            data.text
+            reflowSoftBreaks(data.text)
           )}
         </div>
       )}
     </div>
+  )
+}
+
+/** The located passage marked inside the reflowed page; reflowing keeps every offset in place. */
+function ReflowedRange({ range, markRef }: { range: TextRange; markRef: Ref<HTMLElement> }) {
+  const text = reflowSoftBreaks(range.before + range.match + range.after)
+  const start = range.before.length
+  const end = start + range.match.length
+  return (
+    <>
+      {text.slice(0, start)}
+      <mark ref={markRef} className="pp-cited" data-testid="cited-passage">
+        {text.slice(start, end)}
+      </mark>
+      {text.slice(end)}
+    </>
   )
 }

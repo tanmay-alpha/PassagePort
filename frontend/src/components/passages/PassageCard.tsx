@@ -86,7 +86,7 @@ export function PassageCard({
           ) : null}
           <PassageSource passage={passage} />
         </span>
-        <PassageText text={passage.text} terms={terms} className={cx('mt-2', clampLines && 'line-clamp-6')} />
+        <PassageText text={passage.text} terms={terms} clamped={clampLines} className="mt-2" />
         <span className="sr-only">Open in document viewer</span>
       </button>
       {children ? <div className="px-4 pb-3">{children}</div> : null}

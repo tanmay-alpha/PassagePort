@@ -302,6 +302,10 @@
     font-variant-numeric: tabular-nums;
     box-shadow: inset 0 0 0 1.5px currentColor;
   }
+  /* A replacement renders as removed+added with no space between; keep the pair legible. */
+  .pp-diff-removed + .pp-diff-added {
+    margin-left: 0.25em;
+  }
 
   /* pdf.js page: canvas plus the selectable text layer positioned over it. These rules
      mirror the text-layer subset of pdf.js' viewer stylesheet, without its viewer chrome. */

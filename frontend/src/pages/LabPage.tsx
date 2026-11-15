@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState, Notice, Skeleton, Spinner } from '@/components/ui/Feedback'
 import { Field, Input, Switch } from '@/components/ui/Form'
 import { Page, PageHeader, SectionHeading, WorkspaceBoundary } from '@/components/ui/Page'
+import { ScrollRegion } from '@/components/ui/ScrollRegion'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { cx } from '@/lib/cx'
 import { formatCount, formatDateTime, formatMs, formatScore } from '@/lib/format'
@@ -487,12 +488,14 @@ function StageColumn({ info, stage, tracedId, selectedId, onActive, onOpen }: St
                 >
                   <span className="flex items-baseline gap-2 text-xs">
                     <span className="w-5 shrink-0 font-semibold text-ink-2 tabular-nums">{hit.rank}</span>
-                    <span className="min-w-0 flex-1 truncate font-medium text-ink">
-                      {hit.document_title} · {hit.page_label}
+                    <span className="flex min-w-0 flex-1 font-medium text-ink">
+                      <span className="truncate">{hit.document_title}</span>
+                      <span className="shrink-0 px-1">·</span>
+                      <span className="max-w-[60%] shrink-0 truncate">{hit.page_label}</span>
                     </span>
                     <span className="shrink-0 text-ink-3 tabular-nums">{info.score(hit)}</span>
                   </span>
-                  <span className="pp-passage mt-1 line-clamp-2 block pl-7 text-[0.82rem] leading-snug text-ink-2">{hit.text}</span>
+                  <span className="pp-passage mt-1 line-clamp-2 pl-7 text-[0.82rem] leading-snug text-ink-2">{hit.text}</span>
                 </button>
               </li>
             )
@@ -660,7 +663,7 @@ function EvaluationReport({ report }: { report: EvalReport }) {
         <dd className="text-ink">{report.hardware}</dd>
         <dt className="text-ink-3">Command</dt>
         <dd className="min-w-0">
-          <code className="block overflow-x-auto rounded bg-subtle px-2 py-1 font-mono text-xs whitespace-pre text-ink">{report.command}</code>
+          <code className="block rounded bg-subtle px-2 py-1 font-mono text-xs [overflow-wrap:anywhere] whitespace-pre-wrap text-ink">{report.command}</code>
         </dd>
       </dl>
       {report.datasets.map((dataset) => {
@@ -675,7 +678,7 @@ function EvaluationReport({ report }: { report: EvalReport }) {
               {dataset.embedding_version} · reranker {dataset.reranker ?? 'none'} · indexed at{' '}
               {dataset.indexing_chunks_per_second.toFixed(1)} passages/s
             </p>
-            <div className="mt-2 overflow-x-auto rounded-lg border border-line bg-surface">
+            <ScrollRegion label={`Metrics for ${dataset.name}`} className="mt-2 overflow-x-auto rounded-lg border border-line bg-surface">
               <table className="w-full border-collapse text-left text-[13px]">
                 <caption className="sr-only">{`Retrieval metrics per pipeline for ${dataset.name}`}</caption>
                 <thead>
@@ -727,7 +730,7 @@ function EvaluationReport({ report }: { report: EvalReport }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollRegion>
           </div>
         )
       })}

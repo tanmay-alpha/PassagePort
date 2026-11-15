@@ -27,8 +27,14 @@ interface PreviewViewerProps {
 }
 
 function PreviewViewer({ passage, related, onSelectRelated, onClose }: PreviewViewerProps) {
-  // Page navigation inside the preview is local; the citation itself stays in the URL.
+  // Page navigation inside the preview is local; the citation itself stays in the URL. Picking
+  // another passage jumps to its page but keeps the viewer (zoom, tab, loaded PDF) mounted.
   const [page, setPage] = useState(passage.page_number)
+  const [shown, setShown] = useState(passage.chunk_id)
+  if (shown !== passage.chunk_id) {
+    setShown(passage.chunk_id)
+    setPage(passage.page_number)
+  }
   return (
     <DocumentViewer
       documentId={passage.document_id}
@@ -49,7 +55,7 @@ function PreviewViewer({ passage, related, onSelectRelated, onClose }: PreviewVi
 export function PreviewLayout({ children, passage, onClose, label, related, onSelectRelated }: PreviewLayoutProps) {
   const desktop = useMediaQuery(DESKTOP_QUERY)
   const viewer = passage ? (
-    <PreviewViewer key={passage.chunk_id} passage={passage} related={related} onSelectRelated={onSelectRelated} onClose={onClose} />
+    <PreviewViewer passage={passage} related={related} onSelectRelated={onSelectRelated} onClose={onClose} />
   ) : null
 
   useWindowKeydown((event) => {

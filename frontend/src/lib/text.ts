@@ -60,3 +60,16 @@ export function highlightTerms(text: string, terms: readonly string[]): TextPart
   if (cursor < text.length) parts.push({ text: text.slice(cursor), match: false })
   return parts
 }
+
+/** A line break inside a sentence: after a word or comma, before a lowercase word. */
+const SOFT_BREAK = /(?<=[^\s.!?:;])\n(?=\p{Ll})/gu
+
+/**
+ * Joins the hard line breaks PDF extraction leaves inside sentences, so snippets reflow to
+ * the width they are shown at instead of breaking where the original page's lines ended.
+ * Breaks before a capitalised line (headings, new sentences, list items) are kept. Each break
+ * becomes one space, so character offsets into the text stay valid.
+ */
+export function reflowSoftBreaks(text: string): string {
+  return text.replace(SOFT_BREAK, ' ')
+}

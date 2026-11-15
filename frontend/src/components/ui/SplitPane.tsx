@@ -68,7 +68,9 @@ export function SplitPane({
     <div ref={container} className={cx('flex h-full min-h-0 w-full', dragging && 'cursor-col-resize select-none', className)}>
       <section
         aria-label={primaryLabel}
-        className="min-w-0 overflow-y-auto"
+        // `relative` keeps absolutely positioned descendants (sr-only text) inside this scroller,
+        // so they cannot stretch the document and add a second, page-level scrollbar.
+        className="relative min-w-0 overflow-y-auto"
         style={{ width: secondary === null ? '100%' : `${ratio * 100}%` }}
       >
         {primary}

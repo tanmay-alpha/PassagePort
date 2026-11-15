@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { cx } from '@/lib/cx'
 import { diffStats, diffWords } from '@/lib/diff'
 import { plural } from '@/lib/format'
+import { reflowSoftBreaks } from '@/lib/text'
 
 export interface WordDiffProps {
   fromTitle: string
@@ -18,7 +19,7 @@ export interface WordDiffProps {
  * such; changed numbers are emphasised.
  */
 export function WordDiff({ fromTitle, fromText, toTitle, toText }: WordDiffProps) {
-  const parts = useMemo(() => diffWords(fromText, toText), [fromText, toText])
+  const parts = useMemo(() => diffWords(reflowSoftBreaks(fromText), reflowSoftBreaks(toText)), [fromText, toText])
   const stats = useMemo(() => (parts ? diffStats(parts) : null), [parts])
 
   return (

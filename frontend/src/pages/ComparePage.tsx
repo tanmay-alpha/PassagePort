@@ -15,6 +15,7 @@ import { Button, buttonClass } from '@/components/ui/Button'
 import { Card, EmptyState, Notice, Spinner } from '@/components/ui/Feedback'
 import { Input, Switch } from '@/components/ui/Form'
 import { Page, PageHeader, SectionHeading, WorkspaceBoundary } from '@/components/ui/Page'
+import { ScrollRegion } from '@/components/ui/ScrollRegion'
 import { formatMs, formatScore, plural } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
 import { useUrlParams } from '@/lib/params'
@@ -218,6 +219,8 @@ function Comparison({ data, selectedId, onOpen, onCite }: ComparisonProps) {
         terms={evidence.matched_terms}
         marker={evidence.ref}
         selected={evidence.chunk_id === selectedId}
+        // Side by side, the differing sentence can sit anywhere in the passage: show all of it.
+        clampLines={false}
         onOpen={() => onOpen(evidence)}
       />
     )
@@ -423,7 +426,7 @@ function AlignmentRow({ index, alignment, documents, byRef, style, card }: Align
         ) : null}
 
         {alignment.numeric_differences.length > 0 ? (
-          <div className="mt-3 overflow-x-auto">
+          <ScrollRegion label="Numbers that differ" className="mt-3 overflow-x-auto">
             <table className="w-full border-collapse text-left text-[13px]">
               <caption className="mb-1 text-left text-[13px] font-medium text-ink">Numbers that differ</caption>
               <thead>
@@ -459,7 +462,7 @@ function AlignmentRow({ index, alignment, documents, byRef, style, card }: Align
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         ) : null}
       </div>
     </article>

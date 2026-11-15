@@ -5,13 +5,21 @@ import type { Hit, Passage, SearchMode } from '@/api/types'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { cx } from '@/lib/cx'
 import { formatScore, kindLabel } from '@/lib/format'
-import { highlightTerms } from '@/lib/text'
+import { highlightTerms, reflowSoftBreaks } from '@/lib/text'
+
+export interface PassageTextProps {
+  text: string
+  terms?: readonly string[]
+  /** Cut the text after six lines (cards, previews); `block` would otherwise defeat the clamp. */
+  clamped?: boolean
+  className?: string
+}
 
 /** Passage text in the reading face, with the keyword retriever's matched terms marked. */
-export function PassageText({ text, terms = [], className }: { text: string; terms?: readonly string[]; className?: string }) {
-  const parts = useMemo(() => highlightTerms(text, terms), [text, terms])
+export function PassageText({ text, terms = [], clamped = false, className }: PassageTextProps) {
+  const parts = useMemo(() => highlightTerms(reflowSoftBreaks(text), terms), [text, terms])
   return (
-    <span className={cx('pp-passage block whitespace-pre-line text-ink', className)}>
+    <span className={cx('pp-passage whitespace-pre-line text-ink', clamped ? 'line-clamp-6' : 'block', className)}>
       {parts.map((part, index) => (part.match ? <mark key={index}>{part.text}</mark> : part.text))}
     </span>
   )
@@ -92,13 +100,13 @@ export function RetrievalLine({ hit, mode, className }: { hit: Hit; mode: Retrie
   const metrics = metricsFor(hit, mode)
   if (metrics.length === 0) return null
   return (
-    <ul aria-label="How this passage was retrieved" className={cx('flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3', className)}>
+    <ul aria-label="How this passage was retrieved" className={cx('flex flex-wrap items-center gap-x-3 text-xs text-ink-3', className)}>
       {metrics.map((metric) => (
         <li key={metric.key}>
           <Tooltip content={metric.explanation}>
             <button
               type="button"
-              className="cursor-help rounded-sm tabular-nums underline decoration-line-strong decoration-dotted underline-offset-2 hover:text-ink-2"
+              className="inline-flex min-h-6 cursor-help items-center rounded-sm tabular-nums underline decoration-line-strong decoration-dotted underline-offset-2 hover:text-ink-2"
             >
               {metric.label}
             </button>

@@ -172,6 +172,9 @@ function Idle({ collection, llmConfigured }: { collection: CollectionOut; llmCon
   )
 }
 
+/** The server's notice for extractive answers (`NOTICE_EXTRACTIVE` in answer/service.py). */
+const EXTRACTIVE_NOTICE = 'No language model is configured. These are excerpts quoted from your documents, not a generated answer.'
+
 const MODE_LABELS: Record<AskMode, string> = {
   generated: 'Generated answer',
   extractive: 'Excerpts from your documents',
@@ -199,6 +202,13 @@ function Answer({ data, selectedId, searchPath, onCite, onOpen }: AnswerProps) {
   const total = data.timings_ms.total
   const unsupported = data.segments.filter((segment) => !segment.supported).length
   const insufficient = data.mode === 'insufficient'
+  // The line under the badge already explains extractive mode; show only what the server adds
+  // beyond its own "no language model" sentence (for example a partial-retrieval warning).
+  const notice = insufficient
+    ? null
+    : data.mode === 'extractive'
+      ? data.notice?.replace(EXTRACTIVE_NOTICE, '').trim() || null
+      : data.notice
 
   return (
     <div className="space-y-6">
@@ -288,7 +298,7 @@ function Answer({ data, selectedId, searchPath, onCite, onOpen }: AnswerProps) {
             Sentences marked “No citation” are not backed by any retrieved passage. Treat them as unverified.
           </p>
         ) : null}
-        {data.notice && !insufficient ? <Notice className="mt-4">{data.notice}</Notice> : null}
+        {notice ? <Notice className="mt-4">{notice}</Notice> : null}
 
         {data.checks.length > 0 ? (
           <details className="mt-4 border-t border-line pt-3 text-[13px] text-ink-2">

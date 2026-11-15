@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { documentFileUrl } from '@/api/client'
 import { Button, IconButton } from '@/components/ui/Button'
 import { Notice, Spinner } from '@/components/ui/Feedback'
+import { ScrollRegion } from '@/components/ui/ScrollRegion'
 import { matchPassage } from '@/lib/passageMatch'
 
 // The worker and pdf.js' data files are bundled and served from our origin (strict CSP, no CDN).
@@ -237,9 +238,13 @@ export default function PdfPane({ documentId, page, highlightText, onShowText, o
       {outOfRange ? (
         <Notice tone="warning" className="m-3" title="The original file has no page with this number." />
       ) : null}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-auto bg-subtle p-4 [scrollbar-gutter:stable]">
+      <ScrollRegion
+        ref={scroller}
+        label={`Page ${page} of the original file`}
+        className="min-h-0 flex-1 overflow-auto bg-subtle p-4 [scrollbar-gutter:stable]"
+      >
         <div ref={host} className="pp-pdf-page" />
-      </div>
+      </ScrollRegion>
     </div>
   )
 }
