@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-11-14T12:43:33Z",
+  "generated_at": "2026-11-15T12:19:26Z",
   "git_commit": null,
   "hardware": "Intel(R) Core(TM) i7-14650HX, 24 threads, 16 GB RAM, CPU only, Windows 11, Python 3.12.13",
-  "command": "uv run python -m passageport.evaluation.run evaluate --datasets mini scifact --max-queries 50 --label 'CPU-light defaults' --out ../eval/results/default.json",
+  "command": "uv run python -m passageport.evaluation.run evaluate --datasets mini scifact --max-queries 50 --label 'CPU-light defaults' --out ../eval/results/default.json && .venv-heavy/Scripts/python -m passageport.evaluation.run baseline --upstream-root ../../upstream-baseline/backend --datasets mini --out ../eval/results/upstream-original.json && .venv-heavy/Scripts/python -m passageport.evaluation.run evaluate --datasets mini --embedding sentence-transformers:Alibaba-NLP/gte-multilingual-base --reranker sentence-transformers:Alibaba-NLP/gte-multilingual-reranker-base --label 'Upstream models, improved pipeline' --out ../eval/results/upstream-models.json",
   "datasets": [
     {
       "name": "mini · CPU-light defaults",
@@ -153,6 +153,110 @@
           "ndcg_at_10": 0.7913,
           "latency_ms_p50": 616.17,
           "latency_ms_p95": 739.01
+        }
+      ]
+    },
+    {
+      "name": "mini · Original upstream a0d8c06",
+      "description": "Hand-written technical corpus (operating systems, networking, databases, an API spec in two versions, operations, security, a research-style report). A hit is relevant when its chunk overlaps the labelled quote. Small and self-authored: indicative only. Original upstream raw-file pipeline; quote-overlap relevance.",
+      "documents": 14,
+      "chunks": 55,
+      "queries": 58,
+      "embedding_version": "upstream:Alibaba-NLP/gte-multilingual-base",
+      "reranker": "sentence-transformers:Alibaba-NLP/gte-multilingual-reranker-base",
+      "indexing_chunks_per_second": 1.6,
+      "runs": [
+        {
+          "name": "upstream vector20+rerank",
+          "recall_at_k": {
+            "1": 0.8017,
+            "5": 0.931,
+            "10": 0.9397
+          },
+          "precision_at_k": {
+            "1": 0.8103,
+            "5": 0.1897
+          },
+          "mrr": 0.858,
+          "ndcg_at_10": 0.8781,
+          "latency_ms_p50": 12922.79,
+          "latency_ms_p95": 13651.63
+        }
+      ]
+    },
+    {
+      "name": "mini · Upstream models, improved pipeline",
+      "description": "Hand-written technical corpus (operating systems, networking, databases, an API spec in two versions, operations, security, a research-style report). A hit is relevant when its chunk overlaps the labelled quote. Small and self-authored: indicative only.",
+      "documents": 14,
+      "chunks": 135,
+      "queries": 58,
+      "embedding_version": "sentence-transformers:Alibaba-NLP/gte-multilingual-base:768",
+      "reranker": "sentence-transformers:Alibaba-NLP/gte-multilingual-reranker-base",
+      "indexing_chunks_per_second": 4.0,
+      "runs": [
+        {
+          "name": "keyword",
+          "recall_at_k": {
+            "1": 0.5948,
+            "5": 0.7414,
+            "10": 0.7759
+          },
+          "precision_at_k": {
+            "1": 0.6034,
+            "5": 0.1517
+          },
+          "mrr": 0.6605,
+          "ndcg_at_10": 0.6884,
+          "latency_ms_p50": 0.76,
+          "latency_ms_p95": 1.19
+        },
+        {
+          "name": "semantic",
+          "recall_at_k": {
+            "1": 0.7155,
+            "5": 0.8621,
+            "10": 0.931
+          },
+          "precision_at_k": {
+            "1": 0.7241,
+            "5": 0.1759
+          },
+          "mrr": 0.7901,
+          "ndcg_at_10": 0.824,
+          "latency_ms_p50": 34.75,
+          "latency_ms_p95": 56.58
+        },
+        {
+          "name": "hybrid",
+          "recall_at_k": {
+            "1": 0.7155,
+            "5": 0.8276,
+            "10": 0.8793
+          },
+          "precision_at_k": {
+            "1": 0.7241,
+            "5": 0.169
+          },
+          "mrr": 0.7802,
+          "ndcg_at_10": 0.8042,
+          "latency_ms_p50": 35.62,
+          "latency_ms_p95": 52.15
+        },
+        {
+          "name": "hybrid+rerank",
+          "recall_at_k": {
+            "1": 0.6466,
+            "5": 0.931,
+            "10": 0.9483
+          },
+          "precision_at_k": {
+            "1": 0.6552,
+            "5": 0.1897
+          },
+          "mrr": 0.7659,
+          "ndcg_at_10": 0.8109,
+          "latency_ms_p50": 5336.06,
+          "latency_ms_p95": 6164.64
         }
       ]
     }

@@ -54,6 +54,42 @@ SciFact (embedding-only 61.1 and 47.4 chunks/s). These denominators exclude SQL 
 in-memory search-index construction; this is not an end-to-end upload SLA. Later headline
 reruns reuse those scratch vectors and explicitly mark the cache reuse.
 
+## Comparison with the original upstream pipeline
+
+Mini corpus, best pipeline of each configuration (raw files: `upstream-original.json`,
+`upstream-models.json`, `default.json`). Same 58 answerable + 8 out-of-scope questions; a chunk is
+relevant when it overlaps the labelled quote.
+
+| Configuration | Chunks | Recall@1 | Recall@5 | Recall@10 | MRR@10 | nDCG@10 | Query p50 | Index chunks/s | Peak RSS | Model files | Out-of-scope refused |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Upstream `a0d8c06` as shipped: gte-multilingual, vector top-20 → rerank | 55 | .8017 | .9310 | .9397 | .8580 | .8781 | 12.9 s | 1.6 | 3.68 GB | 1.2 GB | 0 / 8 |
+| PassagePort pipeline + upstream models (hybrid + rerank) | 135 | .6466 | .9310 | .9483 | .7659 | .8109 | 5.3 s | 4.0 | 3.66 GB | 1.2 GB | gated¹ |
+| PassagePort defaults: bge-small + MiniLM, ONNX (hybrid + rerank) | 126 | .7155 | .8276 | .9138 | .7710 | .8044 | 0.60 s | 59.2 | 0.71 GB | 0.15 GB | 7 / 8² |
+
+**The original pipeline scores highest on this corpus, and we report it as a regression in ranking
+metrics, not hide it.** Reasons, in order of how much they explain:
+
+1. **Chunk granularity.** Upstream splits whole raw files into 512-token chunks (55 chunks, ~4 per
+   document); PassagePort splits per page/section at 256 tokens (126). With a quarter of each
+   document per chunk, a hit is much more likely to overlap the labelled quote. The price is the
+   citation: upstream returns a file name and a character offset into the raw file, PassagePort a
+   page or section and an exact, highlightable passage. Our own sweep shows the effect inside one
+   pipeline: hybrid nDCG .7055 at 128 tokens versus .7497 at 512.
+2. **Model size.** The 600 MB multilingual embedder is stronger than 64 MB bge-small: with the same
+   PassagePort pipeline, semantic-only nDCG is .8240 (gte) versus .7017 (bge-small).
+3. **No refusal.** Upstream always returns its top-k; all 8 out-of-scope questions get confident-
+   looking results. PassagePort flags low-confidence evidence (¹ the shipped 0.70 threshold was
+   calibrated for bge-small only; ² rate under the shipped rule, from `calibration.json`).
+
+What the CPU-light default buys: ~22× faster queries, ~37× faster indexing, ~5× less memory and
+~8× smaller models than the shipped upstream configuration, which is what makes a 1 vCPU / 2 GB
+free-tier container viable. Users who want the higher-recall models can switch with
+`PP_EMBEDDING_BACKEND=sentence-transformers` and the upstream model names.
+
+Timing caveats: the PyTorch runs were capped at 4 threads (`OMP_NUM_THREADS=4`) while ONNX used
+its defaults, on a shared, active workstation. The latency and throughput ratios are indicative
+orders of magnitude, not a controlled benchmark; quality metrics are deterministic.
+
 ## Settings and confidence
 
 Mini-only sweep (nDCG@10; reranked depth 20):
@@ -102,8 +138,10 @@ HF_HUB_OFFLINE=1 .venv/Scripts/python.exe -m passageport.evaluation.run sweep --
 HF_HUB_OFFLINE=1 .venv/Scripts/python.exe -m passageport.evaluation.run calibrate --max-queries 50 --out ../eval/results/calibration.json
 uv venv .venv-heavy
 uv pip install --python .venv-heavy/Scripts/python.exe -e '.[baseline,dev]' -c ../eval/upstream-constraints.txt
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 .venv-heavy/Scripts/python.exe -m passageport.evaluation.run baseline --upstream-root ../../upstream-baseline/backend --datasets mini --out ../eval/results/upstream-original.json
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 .venv-heavy/Scripts/python.exe -m passageport.evaluation.run evaluate --datasets mini --embedding sentence-transformers:Alibaba-NLP/gte-multilingual-base --reranker sentence-transformers:Alibaba-NLP/gte-multilingual-reranker-base --label 'Upstream models, improved pipeline' --out ../eval/results/upstream-models.json
+# The gte models load remote code that resolves its module through the Hub, so these two runs
+# need network access even when the weights are already cached.
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 .venv-heavy/Scripts/python.exe -m passageport.evaluation.run baseline --upstream-root ../../upstream-baseline/backend --datasets mini --out ../eval/results/upstream-original.json
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 .venv-heavy/Scripts/python.exe -m passageport.evaluation.run evaluate --datasets mini --embedding sentence-transformers:Alibaba-NLP/gte-multilingual-base --reranker sentence-transformers:Alibaba-NLP/gte-multilingual-reranker-base --label 'Upstream models, improved pipeline' --out ../eval/results/upstream-models.json
 .venv/Scripts/python.exe -m passageport.evaluation.run report --inputs ../eval/results/default.json ../eval/results/upstream-original.json ../eval/results/upstream-models.json --out passageport/evaluation/report.json
 ```
 
