@@ -15,7 +15,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---------------------------------------------------------------------------- backend dependencies
-FROM python:3.12-slim AS backend-deps
+FROM python:3.15-slim AS backend-deps
 
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra postgres --no-install-project
 
 # ---------------------------------------------------------------------------- runtime
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 ARG PRELOAD_MODELS=1
 
