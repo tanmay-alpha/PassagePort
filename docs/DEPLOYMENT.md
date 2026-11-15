@@ -91,6 +91,10 @@ vercel env pull .env.prod --environment=production
 #   PP_ALLOW_GUESTS        = true          # "Try it" without creating an account
 #   PP_MAX_UPLOAD_MB       = 4             # Vercel caps request bodies at 4.5 MB
 #   PP_MAX_DOCUMENTS_PER_USER = 40, PP_MAX_STORAGE_MB_PER_USER = 60
+#   PP_MAX_GUESTS = 50, PP_MAX_DATABASE_MB = 400   # server-wide caps; Neon free plan is 0.5 GB
+#   PP_MAX_DOCUMENT_CHARS = 1000000, PP_PARSE_TIMEOUT_SECONDS = 60
+#   FORWARDED_ALLOW_IPS: leave unset — Vercel's proxy reaches uvicorn from 127.0.0.1 and replaces
+#   any client-supplied X-Forwarded-For, so the default trust setting yields the real client IP
 #   PP_DATA_DIR            = /tmp/passageport
 #   PORT                   = 8000
 vercel deploy --prod
