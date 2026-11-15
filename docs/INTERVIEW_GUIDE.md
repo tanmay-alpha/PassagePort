@@ -96,14 +96,14 @@ Measured with the default CPU models (`eval/results/default.json`; mini = 58 ans
 
 | Corpus | Pipeline | Recall@1 | Recall@5 | Recall@10 | MRR@10 | nDCG@10 | p50 ms |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| mini | keyword | 0.629 | 0.741 | 0.776 | 0.678 | 0.702 | 0.7 |
-| mini | semantic | 0.560 | 0.776 | 0.862 | 0.652 | 0.702 | 5.6 |
-| mini | hybrid | 0.595 | 0.845 | 0.862 | 0.698 | 0.738 | 5.3 |
-| mini | hybrid+rerank | 0.716 | 0.828 | 0.914 | 0.771 | 0.804 | 598.1 |
-| scifact | keyword | 0.600 | 0.790 | 0.834 | 0.701 | 0.731 | 1.1 |
-| scifact | semantic | 0.729 | 0.851 | 0.886 | 0.806 | 0.819 | 8.5 |
-| scifact | hybrid | 0.669 | 0.838 | 0.913 | 0.787 | 0.808 | 9.6 |
-| scifact | hybrid+rerank | 0.615 | 0.863 | 0.926 | 0.750 | 0.791 | 616.2 |
+| mini | keyword | 0.6293 | 0.7414 | 0.7759 | 0.6783 | 0.7017 | 0.67 |
+| mini | semantic | 0.5603 | 0.7759 | 0.8621 | 0.6521 | 0.7017 | 5.59 |
+| mini | hybrid | 0.5948 | 0.8448 | 0.8621 | 0.6977 | 0.7383 | 5.29 |
+| mini | hybrid+rerank | 0.7155 | 0.8276 | 0.9138 | 0.771 | 0.8044 | 598.12 |
+| scifact | keyword | 0.6 | 0.79 | 0.834 | 0.7009 | 0.7312 | 1.1 |
+| scifact | semantic | 0.729 | 0.851 | 0.886 | 0.8064 | 0.8188 | 8.51 |
+| scifact | hybrid | 0.669 | 0.838 | 0.913 | 0.7872 | 0.8076 | 9.57 |
+| scifact | hybrid+rerank | 0.615 | 0.863 | 0.926 | 0.7498 | 0.7913 | 616.17 |
 
 Honest reading: on the self-authored mini set, hybrid and reranking help most (paraphrase queries are where keyword search fails). On the external SciFact subset, vector search alone has the best top-rank metrics and reranking *lowers* MRR while improving Recall@10, so reranking is a switch, not a free upgrade. Full methodology: [SEARCH_EVALUATION.md](SEARCH_EVALUATION.md).
 
@@ -124,8 +124,9 @@ Honest reading: on the self-authored mini set, hybrid and reranking help most (p
 **Follow-ups**
 - **Why not always multilingual?** Language coverage trades against deployment footprint and workload-specific cost; benchmark the actual corpus.
 - **Does PostgreSQL accelerate vector search here?** No. It persists embedding blobs; NumPy performs retrieval.
+- **Do the smaller defaults beat upstream's original pipeline?** No, not on ranking: on mini the original upstream pipeline (`a0d8c06`, gte-multilingual, 512-token whole-file chunks) scores nDCG@10 .8781 versus .8044 for PassagePort's defaults, while the defaults answer queries ~22× faster (0.60 s versus 12.9 s p50) with ~5× less memory (0.71 GB versus 3.68 GB peak RSS). See [SEARCH_EVALUATION.md](SEARCH_EVALUATION.md#comparison-with-the-original-upstream-pipeline).
 
-**Limitation / next:** The cache limits collection count, not memory bytes; establish resource budgets before scaling.
+**Limitation / next:** The cache is bounded by collection count (16) and total chunk count (100,000), not memory bytes; establish resource budgets before scaling.
 
 ## 8. What happens when indexing fails?
 
@@ -153,7 +154,7 @@ Honest reading: on the self-authored mini set, hybrid and reranking help most (p
 
 ## 10. What is genuinely new compared with upstream?
 
-**Answer.** I describe this as a rewrite of an existing project, not a new invention of retrieval. I retained the FastAPI/React/Vite foundation, semchunk chunking idea, retrieve-then-rerank idea, optional upstream models, and MCP server concept identified in [BASELINE_AUDIT.md](BASELINE_AUDIT.md). I added document identity and lifecycle operations, PDF/DOCX parsing, page-and-offset citations, BM25/RRF hybrid retrieval, recoverable indexing jobs, and accounts-based isolation. I also added evidence-oriented Ask and computed document comparison rather than presenting every similarity as an LLM conclusion.
+**Answer.** I describe this as a rewrite of an existing project, not a new invention of retrieval. I retained the FastAPI/Pydantic and React/Vite/TypeScript foundation, semchunk chunking, the retrieve-then-rerank idea, upstream's models as an optional backend, the MCP server concept, and the idea of property-testing chunking, as identified in [BASELINE_AUDIT.md](BASELINE_AUDIT.md). I added document identity and lifecycle operations, PDF/DOCX parsing, page-and-offset citations, BM25/RRF hybrid retrieval, recoverable indexing jobs, and accounts-based isolation. I also added evidence-oriented Ask and computed document comparison rather than presenting every similarity as an LLM conclusion.
 
 **Code:** `parsing/formats.py` — `parse_pdf`, `parse_docx`; `ingest/pipeline.py` — `store_index`; `search/service.py` — `retrieve`; `answer/service.py` — `run_ask`; `compare/service.py` — `run_compare`; `compare/align.py` — `diff_passages`.
 
@@ -187,6 +188,6 @@ Honest reading: on the self-authored mini set, hybrid and reranking help most (p
 
 - Built PassagePort, a document search and cited-answer app with hybrid BM25 + vector + RRF retrieval and cross-encoder reranking; measured on a self-authored mini corpus (hybrid+rerank MRR@10 0.771, nDCG@10 0.8044) and a 50-query BEIR SciFact subset (Recall@10 0.926), reporting where reranking lowers SciFact MRR (0.7498 vs 0.7872 hybrid).
 - Engineered page-accurate citations with a property-tested offset invariant and lease-based, crash-safe indexing with fencing; fixed findings from independent security audits (ZIP preflight, quota row locking, atomic login throttle, fenced workers, transactional DB blobs, guest purge).
-- Shipped with 547 backend tests (also run against real PostgreSQL 17: 228 passed, 1 skipped), 75 frontend tests and 3 Playwright projects (Chromium, mobile Chromium, Firefox) covering upload → index → search → cited PDF page → compare → restart persistence and account isolation; deployed on Vercel + Neon PostgreSQL (https://passageport.vercel.app) with a non-root Docker image verified with offline models.
+- Shipped with 571 backend tests (the 253 data-layer tests also run against real PostgreSQL 16.15: 252 passed, 1 SQLite-file-location test skipped), frontend component tests and 3 Playwright projects (Chromium and mobile Chromium run every spec; Firefox runs the core flow) covering upload → index → search → cited PDF page → compare → restart persistence and account isolation; deployed on Vercel + Neon PostgreSQL (https://passageport.vercel.app) with a non-root Docker image verified with offline models.
 
-Every claim above is reproducible from the commands in the [README](../README.md) (Measured results and Verification commands).
+Metrics trace to [`eval/results/default.json`](../eval/results/default.json) and test counts to the [README](../README.md) verification commands; the PostgreSQL run is recorded in [SECURITY.md](SECURITY.md#audit-verification-2026-11-15-public-guest-enabled-deployment). The live deployment can only be checked at its URL.

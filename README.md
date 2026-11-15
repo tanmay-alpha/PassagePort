@@ -72,7 +72,8 @@ mode behind HTTPS; see [deployment instructions](docs/DEPLOYMENT.md).
 
 ## Development
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 24.
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 24 (the version CI uses; the
+frontend declares ≥ 20.19 and the MCP server ≥ 22).
 
 ```bash
 # Terminal 1: backend
@@ -158,6 +159,10 @@ developer workstation, excluding model load.
 - **scifact** is a deterministic 50-query subset of the BEIR SciFact test set over all 5,183
   abstracts, not a full-test-set result; there, reranking raises Recall@5/@10 but lowers
   Recall@1 and MRR versus vector-only or hybrid search, so reranking can be disabled.
+- The original upstream pipeline (commit `a0d8c06`: gte-multilingual models, 512-token whole-file
+  chunks, no refusal) scores higher on mini, nDCG@10 .8781 versus .8044 for these defaults, at
+  ~22× the query latency and ~5× the memory; see
+  [Comparison with the original upstream pipeline](docs/SEARCH_EVALUATION.md#comparison-with-the-original-upstream-pipeline).
 
 Method, caveats and reproduce commands: [Search evaluation](docs/SEARCH_EVALUATION.md).
 
@@ -209,9 +214,12 @@ The TypeScript stdio server exposes `list_collections`, `list_documents`, `searc
 - Local mode is single-user; accounts mode checks ownership on every document and retrieval path.
 - Uploaded files and the database are not application-encrypted at rest. Use encrypted disks and
   managed storage appropriate to your documents.
-- Scanned PDFs need OCR, which is not included. Encrypted or image-only PDFs fail explicitly.
+- Scanned PDFs need OCR, which is not included. Password-protected (not openable with an empty
+  password) or image-only PDFs fail explicitly.
 - Parser processes have deadlines and limits, not a complete hostile-code sandbox.
-- Rate limits are per process. Public deployments need operational abuse controls and backups.
+- Compute rate limits and sign-in/sign-up throttles are per process. Per-user quotas, the guest
+  cap (`PP_MAX_GUESTS`) and the database ceiling (`PP_MAX_DATABASE_MB`) are enforced in the
+  database across processes. Public deployments still need operational abuse controls and backups.
 - Hosted storage must be persistent. A free service’s ephemeral disk is **not** durable hosting.
 
 ## Attribution and original contribution
@@ -219,8 +227,9 @@ The TypeScript stdio server exposes `list_collections`, `list_documents`, `searc
 PassagePort began from [Praveen Chamarthi’s Simple Knowledge Base](https://github.com/praveenc/simple-knowledge-base),
 MIT, commit `a0d8c06`. Its commit history and copyright notice are preserved.
 
-Retained foundations: FastAPI, React/Vite/TypeScript, semchunk, the retrieve-then-rerank pattern,
-and the MCP integration concept. The original models remain optional.
+Retained foundations: FastAPI with Pydantic models, React/Vite/TypeScript, semchunk, the
+retrieve-then-rerank pattern, the MCP integration concept and the idea of property-testing chunk
+invariants. Upstream's gte-multilingual models remain available as an optional backend.
 
 PassagePort’s additions are the document/page lifecycle and citation model, transactional
 persistence, hybrid retrieval, evidence-backed answers, independently computed document

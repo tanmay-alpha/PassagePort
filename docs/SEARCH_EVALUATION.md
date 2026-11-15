@@ -106,6 +106,21 @@ mini nDCG (.7661 versus .7383), but reduced hybrid recall@5 (.7759 versus .8448)
 Vector-favoring weights .7:1 improved nDCG to .7462 but reduced recall@5 to .8103.
 Keep the conservative equal-weight default rather than overfit one small corpus.
 
+### Keyword tokenizer
+
+Stemming modes of `search/tokenize.py` on mini (`sweep.json`, 256 tokens):
+
+| Stemming | Keyword nDCG@10 | Hybrid nDCG@10 | Hybrid recall@5 |
+| --- | ---: | ---: | ---: |
+| none | .6523 | .7109 | .7931 |
+| plural (default) | .7017 | .7383 | .8448 |
+| light (plural + -ing/-ed/-ly) | .7410 | .7557 | .8276 |
+
+Light stemming scores higher nDCG on mini but lowers hybrid recall@5; plural folding is kept for
+the same reason as the equal weights above.
+
+### Confidence thresholds
+
 The previous no-rerank cosine threshold .35 accepted all 8 unrelated mini queries. The selected
 **cosine >= .70 OR full keyword coverage** retained 81.03% of mini answerable queries,
 accepted 1/8 out-of-scope queries and 7/48 source-removed queries. Source-removed evaluation

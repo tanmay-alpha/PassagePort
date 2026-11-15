@@ -37,15 +37,19 @@ The pipeline for one document:
 
 1. **Parse** (`parsing/`) in a child process started with `spawn`, with a deadline and (on POSIX)
    an address-space limit. PDFs become one page per PDF page via `pypdf`; Markdown is split at
-   `#`/`##` headings; DOCX at Heading 1/2; plain text into parts of about 3,000 characters at
-   paragraph boundaries. Encrypted PDFs and PDFs without a text layer fail with a specific message.
+   `#`/`##` headings outside fenced code; DOCX at Title / Heading 1 / Heading 2 paragraphs (by
+   size when it has none); plain text into parts of about 3,000 characters at paragraph
+   boundaries. A section longer than 6,000 characters is divided the same way. PDFs that are
+   password-protected (not openable with an empty password) or have no text layer fail with a
+   specific message.
 2. **Chunk** (`chunking.py`) each page with `semchunk`, bounded by `PP_CHUNK_MAX_TOKENS` counted
-   with the embedding model's own tokenizer. A chunk never crosses a page, and its
+   with the embedding model's own tokenizer, and counting at least one token per 16 characters so
+   no chunk exceeds `PP_CHUNK_MAX_TOKENS × 16` characters. A chunk never crosses a page, and its
    `char_start`/`char_end` are offsets into the stored page text.
 3. **Embed** in batches with the configured `Embedder`.
-4. **Swap** in a single transaction: delete the document's old pages and chunks, insert the new
-   ones (embeddings as little-endian float32 blobs), set status `indexed`, and bump
-   `collections.index_version`.
+4. **Swap** in a single transaction: re-check the `PP_MAX_DATABASE_MB` ceiling, delete the
+   document's old pages and chunks, insert the new ones (embeddings as little-endian float32
+   blobs), set status `indexed`, and bump `collections.index_version`.
 
 Steps 1–3 hold no database transaction. If anything fails, nothing was written: a first-time
 failure marks the document `failed` with a readable reason; a failed **re-index** leaves the
@@ -89,11 +93,14 @@ flowchart LR
    search; there is no ANN index and therefore no recall loss.
 5. **Fusion.** `search/fusion.py`: `score(d) = Σ wᵢ / (k + rankᵢ(d))`. Rank-based fusion needs no
    score normalization between BM25 (unbounded) and cosine (−1…1).
-6. **Rerank (optional).** A cross-encoder scores the query against each of the top fused
-   candidates jointly and reorders them.
-7. **Confidence gate.** If no result clears the similarity / rerank thresholds and no query term
-   matched, the response is flagged `low_confidence` with a plain-language notice instead of
-   presenting weak matches as answers.
+6. **Rerank (optional).** A cross-encoder scores the query against each of the top
+   `rerank_candidates` fused candidates jointly and reorders them; the rest keep their fused order.
+   Invalid scores (wrong count, NaN/inf) keep the fused order and add a notice.
+7. **Confidence gate** (`is_relevant`, `assess`). When reranking ran, a passage counts as relevant
+   only if its cross-encoder score is ≥ `PP_MIN_RERANK_SCORE` (0.0). Otherwise it counts if it
+   contains every query term (full keyword coverage) or its cosine similarity is ≥
+   `PP_MIN_VECTOR_SIMILARITY` (0.70). If no returned passage is relevant, the response is flagged
+   `low_confidence` with a plain-language notice instead of presenting weak matches as answers.
 
 Ties are always broken by chunk ID, so identical requests return identical rankings. The response
 includes the effective settings (weights, `k`, candidates, model versions, index version) — enough
@@ -129,14 +136,17 @@ not ("generated wording was not independently fact-checked").
 
 `compare/align.py` (pure functions), `compare/service.py`
 
-For each selected document the question is run through the same retrieval, restricted to that
-document. Passages from different documents are then paired by cosine similarity of their stored
-embeddings (greedy, at most one passage per document per group, above a threshold). For each
-group the differences are computed from the text: sentences shared by all, sentences unique to
-each, and numeric differences (near-identical sentences where a number, unit or version differs —
-"100 requests per minute" vs "250 requests per minute"). A document with no relevant passage is
-reported as such. If an LLM is configured, its summary is returned separately and labelled as
-interpretation.
+For each selected document (two to four) the question is run through the same hybrid retrieval,
+restricted to that document; only passages that pass the confidence gate are compared. Passages
+from different documents are then grouped by cosine similarity of their stored embeddings: greedy
+complete linkage, at most one passage per document per group, and every pair in a group at
+cosine ≥ 0.8. For each group the differences are computed from the text: sentences shared by all,
+sentences unique to each, and numeric differences (sentences at least 0.9 similar by difflib ratio
+once their values are masked, where a number, unit or version differs — "100 requests per minute"
+vs "250 requests per minute"). Fuzzy sentence matching has a fixed budget of 3,000,000 character
+steps per group; after that only sentences equal after normalization pair up. A document with no
+relevant passage is reported as such. If an LLM is configured (and the request does not set
+`interpret: false`), its summary is returned separately and labelled as interpretation.
 
 ## 7. Search Lab and evaluation
 

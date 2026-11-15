@@ -66,7 +66,7 @@ Severity: P0 = security/data-loss/correctness, P1 = core product gap, P2 = quali
 | R2 | **No citations.** Results show a filename and a character offset; there are no pages and nothing to open. | `SearchResult` | Page/section references that open the source |
 | R3 | **No PDF/DOCX support.** | `ALLOWED_EXTENSIONS = {".md", ".txt"}` | PDF, DOCX parsing |
 | R4 | **No empty/low-confidence handling.** The reranker always returns top-k, however irrelevant. | `query` handler | Confidence gating and explicit notices |
-| R5 | **Heavy models.** 2.4 GB of model weights plus a 1.1 GB PyTorch environment for a local single-user tool; multi-second cold start. | measured below / SEARCH_EVALUATION.md | CPU-light default, heavy optional |
+| R5 | **Heavy models.** 2.4 GB of Hugging Face cache for the two models plus a 1.1 GB PyTorch environment for a local single-user tool; multi-second cold start. | measured baseline table above / SEARCH_EVALUATION.md | CPU-light default, heavy optional |
 | U1 | **UI exposes implementation, not workflow.** "Indexes", absolute server paths typed into a text box, raw relevance scores; no document list, no preview, no dark mode toggle, console-style AWS look. | `AddKnowledge.tsx` (741 lines), screenshots in upstream README | Workflow-first UI |
 | M1 | **MCP "fetch document" is a search in disguise.** `kb_fetch_doc` queries with the filename as the query text and filters the top-k by substring. | `mcp-server/src/tools.ts` | Real page/passage retrieval by ID |
 

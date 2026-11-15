@@ -42,14 +42,14 @@ flowchart LR
 | Auth | `passageport/auth/` | `local` (single user, loopback hosts only) or `accounts` (argon2id, hashed server-side sessions, per-user isolation, API tokens). |
 | Upload validation + blobs | `passageport/storage/` | Size cap while streaming, extension + content sniffing, zip-bomb guard, sha256 dedup, server-generated blob keys. |
 | Parsing | `passageport/parsing/` | PDF (pypdf), TXT, Markdown, DOCX → ordered "pages". Runs in a killable subprocess with a timeout. |
-| Chunking | `passageport/chunking.py` | `semchunk`, token-bounded, never crosses a page; exact character offsets; deterministic chunk IDs. |
+| Chunking | `passageport/chunking.py` | `semchunk`, token-bounded (and at most `chunk_max_tokens × 16` characters), never crosses a page; exact character offsets; deterministic chunk IDs. |
 | Embeddings / reranker | `passageport/ml/` | `Embedder` / `Reranker` protocols. Backends: fastembed (default, ONNX), sentence-transformers (optional), hashing (tests). |
 | Jobs | `passageport/ingest/` | DB-backed queue with leases and heartbeats; worker thread; crash recovery by lease expiry. |
-| Lexical search | `passageport/search/bm25.py` | BM25 with a tokenizer tuned for technical text. |
+| Lexical search | `passageport/search/bm25.py`, `search/tokenize.py` | BM25 (Lucene's non-negative idf) over numpy postings; identifier-aware tokenizer for technical text. |
 | Vector search | `passageport/search/index.py` | Exact cosine over a per-collection matrix. |
-| Hybrid retrieval | `passageport/search/` | Weighted reciprocal-rank fusion, optional cross-encoder rerank, confidence gating. |
+| Hybrid retrieval | `passageport/search/service.py`, `search/fusion.py` | Weighted reciprocal-rank fusion, optional cross-encoder rerank, confidence gating. |
 | Answers | `passageport/answer/` | Extractive by default; optional LLM with citation validation and prompt-injection defenses. |
-| Compare | `passageport/compare/` | Per-document retrieval, embedding alignment, text-computed diffs; optional labelled LLM interpretation. |
+| Compare | `passageport/compare/` | Per-document retrieval, embedding alignment (cosine ≥ 0.8), text-computed diffs with a bounded work budget; optional labelled LLM interpretation. |
 | Search Lab + evaluation | `passageport/lab/`, `passageport/evaluation/`, `eval/` | Stage-by-stage inspection; reproducible Recall@K / MRR / latency harness. |
 
 ## Key decisions
@@ -64,8 +64,9 @@ a collection must fit in RAM (384-d float32 ≈ 1.5 KB per chunk, so 50k chunks 
 `search/index.py` is the seam where pgvector or LanceDB would go.
 
 **Version-keyed index cache.** Every transaction that changes chunks bumps
-`collections.index_version`. The cache compares that integer (one indexed read) on each query, so it
-is correct across restarts and across multiple server processes without any invalidation messages.
+`collections.index_version`. The cache compares that integer (one indexed read) and the embedding
+version on each query, so it is correct across restarts and across multiple server processes
+without any invalidation messages. It holds at most 16 collections and 100,000 chunks.
 
 **Pages are the citation unit.** Chunks never cross a page and store character offsets into the
 stored page text, so `page.text[start:end] == chunk.text` is an invariant (property-tested). A
@@ -86,10 +87,11 @@ stateDiagram-v2
   uploaded --> processing: worker claims job (lease)
   processing --> indexed: parse + chunk + embed, swapped in one transaction
   processing --> failed: parse error / limits / crash after max attempts
-  processing --> uploaded: lease expired (crash) → re-queued
-  failed --> processing: retry
+  processing --> processing: lease expired (crash) → job claimed again, up to the attempt limit
+  failed --> processing: retry / re-index
   indexed --> processing: re-index (old index stays searchable until the swap)
-  indexed --> [*]: delete (rows cascade, blob removed after commit)
+  processing --> indexed: re-index failed (previous index kept, error recorded)
+  indexed --> [*]: delete (rows cascade; DB blobs in the same transaction, files after commit)
   failed --> [*]: delete
 ```
 

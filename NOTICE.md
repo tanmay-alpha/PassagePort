@@ -14,6 +14,10 @@ created by Praveen Chamarthi and published under the MIT License
   web UI and from an MCP server) and its repository layout (`backend/`, `frontend/`,
   `mcp-server/`). The backend, the web client and the MCP server were rewritten for PassagePort;
   see the git history for exactly what changed.
+- Retained technical foundations, as listed in [`docs/BASELINE_AUDIT.md`](docs/BASELINE_AUDIT.md):
+  FastAPI with Pydantic models, a React/Vite/TypeScript client, `semchunk` token-bounded
+  chunking, the retrieve-then-rerank pattern, upstream's gte-multilingual models as an optional
+  backend, the MCP server as an integration surface, and the idea of property-testing chunking.
 
 ## License
 

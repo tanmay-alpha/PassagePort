@@ -46,7 +46,8 @@ All routes are under `/api`; errors are `{"error": {"code", "message"}}`.
 | Citations | `GET /chunks/{chunk_id}` |
 | Retrieval | `POST /search`, `/ask`, `/compare`, `/lab/search`; `GET /lab/evaluation` |
 
-Unsafe methods need the header `X-PassagePort-CSRF: 1` unless the request carries a bearer token.
+Unsafe methods need the header `X-PassagePort-CSRF: 1` unless, in accounts mode, the request
+carries a bearer API token.
 
 ## Tests and checks
 
