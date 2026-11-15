@@ -68,6 +68,8 @@ export default function PdfPane({ documentId, page, highlightText, onShowText, o
       cMapPacked: true,
       standardFontDataUrl: `${PDFJS_DATA}/standard_fonts/`,
       wasmUrl: `${PDFJS_DATA}/wasm/`,
+      // pdf.js 6 converts CMYK images through an ICC profile it fetches from here.
+      iccUrl: `${PDFJS_DATA}/iccs/`,
     })
     task.promise.then(
       (pdf) => {

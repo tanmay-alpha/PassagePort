@@ -11,7 +11,7 @@ import { buttonClass } from './Button'
 import { EmptyState, Notice, Skeleton } from './Feedback'
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx('mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8', className)}>{children}</div>
+  return <div className={cx('mx-auto w-full max-w-5xl animate-rise px-4 py-6 sm:px-6 lg:px-10 lg:py-10', className)}>{children}</div>
 }
 
 export interface PageHeaderProps {
@@ -24,11 +24,11 @@ export interface PageHeaderProps {
 
 export function PageHeader({ title, eyebrow, description, actions }: PageHeaderProps) {
   return (
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+    <header className="mb-7 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
-        {eyebrow ? <p className="mb-1 truncate text-[13px] font-medium text-ink-3">{eyebrow}</p> : null}
-        <h1 className="text-xl font-semibold tracking-[-0.01em] text-ink">{title}</h1>
-        {description ? <p className="mt-1 max-w-2xl text-sm text-ink-2">{description}</p> : null}
+        {eyebrow ? <p className="mb-1.5 truncate text-[12.5px] font-medium tracking-[0.01em] text-ink-3">{eyebrow}</p> : null}
+        <h1 className="font-serif text-[1.7rem] leading-tight font-semibold tracking-[-0.015em] text-ink">{title}</h1>
+        {description ? <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-2">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </header>

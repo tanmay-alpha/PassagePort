@@ -53,7 +53,7 @@ export function EmptyState({ icon, title, description, action, className }: Empt
   return (
     <div className={cx('flex flex-col items-center px-6 py-12 text-center', className)}>
       {icon ? (
-        <div className="mb-4 flex size-11 items-center justify-center rounded-lg border border-line bg-surface text-ink-3">
+        <div className="mb-4 flex size-12 items-center justify-center rounded-2xl border border-line bg-surface text-ink-3 shadow-card">
           {icon}
         </div>
       ) : null}
@@ -108,7 +108,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 }
 
 export function Card({ className, ...rest }: ComponentProps<'div'>) {
-  return <div className={cx('rounded-lg border border-line bg-surface', className)} {...rest} />
+  return <div className={cx('rounded-xl border border-line bg-surface', className)} {...rest} />
 }
 
 /** Determinate when `value` is given (0..1), otherwise an honest indeterminate bar. */

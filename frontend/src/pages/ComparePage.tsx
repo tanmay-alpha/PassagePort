@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 import { errorMessage } from '@/api/client'
 import { useCompare, useDocuments, useSystem } from '@/api/queries'
 import type { Alignment, CollectionOut, CompareDocument, CompareIn, CompareOut, Evidence } from '@/api/types'
+import { DiffLegend, WordDiff } from '@/components/compare/WordDiff'
 import { DocumentFilter, parseIdList } from '@/components/documents/DocumentFilter'
 import { AnswerSegments, evidenceElementId } from '@/components/passages/AnswerSegments'
 import { PassageCard } from '@/components/passages/PassageCard'
@@ -85,7 +86,13 @@ function CompareScreen({ collection }: { collection: CollectionOut }) {
   }
 
   return (
-    <PreviewLayout passage={selected} onClose={() => patch({ hit: null })} label="Compare">
+    <PreviewLayout
+      passage={selected}
+      onClose={() => patch({ hit: null })}
+      label="Compare"
+      related={allEvidence}
+      onSelectRelated={(passage) => patch({ hit: passage.chunk_id }, { replace: true })}
+    >
       <Page className="max-w-6xl">
         <PageHeader
           eyebrow={collection.name}
@@ -319,6 +326,13 @@ function AlignmentRow({ index, alignment, documents, byRef, style, card }: Align
   const uniqueCount = Object.values(alignment.unique_sentences).reduce((sum, sentences) => sum + sentences.length, 0)
   const nothingComputed =
     !alignment.identical && alignment.shared_sentences.length === 0 && uniqueCount === 0 && alignment.numeric_differences.length === 0
+  // Every other aligned passage is diffed against the first one, in document order.
+  const diffed = aligned.flatMap((document) => {
+    const passage = alignment.passages.find((item) => item.document_id === document.document_id)
+    const evidence = passage ? byRef.get(passage.ref) : undefined
+    return evidence ? [{ title: document.title, evidence }] : []
+  })
+  const [base, ...others] = diffed
 
   return (
     <article aria-labelledby={headingId} className="overflow-hidden rounded-lg border border-line" data-testid="alignment">
@@ -355,6 +369,24 @@ function AlignmentRow({ index, alignment, documents, byRef, style, card }: Align
         {alignment.identical ? <p className="mt-2 text-[13px] text-ink">The aligned passages are word for word the same.</p> : null}
         {nothingComputed ? (
           <p className="mt-2 text-[13px] text-ink-2">No shared sentences, unique sentences or differing numbers were detected.</p>
+        ) : null}
+
+        {base && others.length > 0 && !alignment.identical ? (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h5 className="text-[13px] font-medium text-ink">Word-level changes</h5>
+              <DiffLegend />
+            </div>
+            {others.map((other) => (
+              <WordDiff
+                key={other.evidence.chunk_id}
+                fromTitle={base.title}
+                fromText={base.evidence.text}
+                toTitle={other.title}
+                toText={other.evidence.text}
+              />
+            ))}
+          </div>
         ) : null}
 
         {alignment.shared_sentences.length > 0 ? (
@@ -413,8 +445,14 @@ function AlignmentRow({ index, alignment, documents, byRef, style, card }: Align
                       {difference.context}
                     </th>
                     {aligned.map((document) => (
-                      <td key={document.document_id} className="py-1.5 pr-4 font-medium text-ink tabular-nums">
-                        {difference.values[document.document_id] ?? '—'}
+                      <td key={document.document_id} className="py-1.5 pr-4 text-ink tabular-nums">
+                        {difference.values[document.document_id] === undefined ? (
+                          '—'
+                        ) : (
+                          <span className="pp-diff-number inline-block rounded bg-mark px-1.5 font-semibold">
+                            {difference.values[document.document_id]}
+                          </span>
+                        )}
                       </td>
                     ))}
                   </tr>

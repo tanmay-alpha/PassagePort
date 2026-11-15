@@ -10,7 +10,8 @@ interface Shortcut {
 }
 
 const SHORTCUTS: Shortcut[] = [
-  { combos: [['/'], ['Ctrl', 'K'], ['⌘', 'K']], description: 'Search the current workspace' },
+  { combos: [['Ctrl', 'K'], ['⌘', 'K']], description: 'Open the command menu: jump anywhere or run a search' },
+  { combos: [['/']], description: 'Search the current workspace' },
   { combos: [['↑'], ['↓']], description: 'Move between results' },
   { combos: [['Enter']], description: 'Open the focused result in the preview' },
   { combos: [['Esc']], description: 'Close the preview, menu or dialog' },

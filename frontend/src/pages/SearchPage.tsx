@@ -6,6 +6,7 @@ import { errorMessage } from '@/api/client'
 import { useDocuments, useSearch, useSystem } from '@/api/queries'
 import type { CollectionOut, Hit, SearchIn, SearchMode, SearchOut } from '@/api/types'
 import { DocumentFilter, parseIdList } from '@/components/documents/DocumentFilter'
+import { CopyCitationButton } from '@/components/passages/CopyCitation'
 import { movePassageFocus, PassageCard } from '@/components/passages/PassageCard'
 import { RetrievalLine } from '@/components/passages/PassageText'
 import { PreviewLayout } from '@/components/passages/PreviewLayout'
@@ -13,6 +14,7 @@ import { Button, buttonClass } from '@/components/ui/Button'
 import { EmptyState, Notice, SkeletonList } from '@/components/ui/Feedback'
 import { Input, SegmentedControl, Switch } from '@/components/ui/Form'
 import { Page, PageHeader, WorkspaceBoundary } from '@/components/ui/Page'
+import { groupByDocument } from '@/lib/citation'
 import { cx } from '@/lib/cx'
 import { formatMs, plural } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
@@ -43,7 +45,7 @@ function SearchScreen({ collection }: { collection: CollectionOut }) {
   const system = useSystem()
   const documents = useDocuments(collection.id)
   const queryInput = useRef<HTMLInputElement>(null)
-  const results = useRef<HTMLOListElement>(null)
+  const results = useRef<HTMLDivElement>(null)
 
   const q = params.get('q') ?? ''
   const modeParam = params.get('mode')
@@ -91,7 +93,13 @@ function SearchScreen({ collection }: { collection: CollectionOut }) {
   }
 
   return (
-    <PreviewLayout passage={selected} onClose={() => patch({ hit: null })} label="Search">
+    <PreviewLayout
+      passage={selected}
+      onClose={() => patch({ hit: null })}
+      label="Search"
+      related={search.data?.results}
+      onSelectRelated={(passage) => patch({ hit: passage.chunk_id }, { replace: true })}
+    >
       <Page>
         <PageHeader eyebrow={collection.name} title="Search" />
         <form role="search" onSubmit={onSubmit} className="flex flex-col gap-3">
@@ -195,6 +203,7 @@ function SearchScreen({ collection }: { collection: CollectionOut }) {
               stale={search.isPlaceholderData}
               selectedId={selected?.chunk_id ?? null}
               previewOpen={selected !== null}
+              grouping={params.get('group') === 'document' ? 'document' : 'rank'}
               patch={patch}
             />
           )}
@@ -235,32 +244,74 @@ function Idle({ collection }: { collection: CollectionOut }) {
   )
 }
 
+type Grouping = 'rank' | 'document'
+
+const GROUPINGS: Array<{ value: Grouping; label: string; hint: string }> = [
+  { value: 'rank', label: 'Relevance', hint: 'One list in ranked order' },
+  { value: 'document', label: 'By document', hint: 'Grouped by document, best match first' },
+]
+
 interface ResultsProps {
   data: SearchOut
-  listRef: RefObject<HTMLOListElement | null>
+  listRef: RefObject<HTMLDivElement | null>
   /** Previous results shown while a changed search is loading. */
   stale: boolean
   selectedId: string | null
   previewOpen: boolean
+  grouping: Grouping
   patch: PatchParams
 }
 
-function Results({ data, listRef, stale, selectedId, previewOpen, patch }: ResultsProps) {
+function Results({ data, listRef, stale, selectedId, previewOpen, grouping, patch }: ResultsProps) {
   const { results, settings, notice, low_confidence: lowConfidence } = data
   const total = data.timings_ms.total
   const canShowMore = results.length >= settings.top_k && settings.top_k < MAX_TOP_K
+  const groups = useMemo(() => groupByDocument(results), [results])
+
+  const card = (hit: Hit) => (
+    <li key={hit.chunk_id}>
+      <PassageCard
+        passage={hit}
+        terms={hit.matched_terms}
+        marker={hit.rank}
+        navKey={hit.chunk_id}
+        selected={hit.chunk_id === selectedId}
+        onOpen={() => patch({ hit: hit.chunk_id }, { replace: previewOpen })}
+        onKeyDown={(event) => {
+          const next = movePassageFocus(event)
+          // With the preview open, arrowing through results keeps it in step.
+          if (next?.dataset.passage && previewOpen) patch({ hit: next.dataset.passage }, { replace: true })
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <RetrievalLine hit={hit} mode={settings.mode} />
+          <CopyCitationButton passage={hit} />
+        </div>
+      </PassageCard>
+    </li>
+  )
 
   return (
-    <div className={cx(stale && 'opacity-60')} aria-busy={stale}>
-      <p className="mb-3 text-[13px] text-ink-3" role="status">
-        {plural(results.length, 'passage')} for “{data.query}” · {MODE_NAMES[settings.mode]}
-        {settings.reranked ? `, reranked${settings.reranker ? ` with ${settings.reranker}` : ''}` : ''}
-        {total !== undefined ? ` · ${formatMs(total)}` : ''}
-      </p>
+    <div className={cx('transition-opacity duration-150', stale && 'opacity-60')} aria-busy={stale}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="text-[13px] text-ink-3" role="status">
+          {plural(results.length, 'passage')} for “{data.query}” · {MODE_NAMES[settings.mode]}
+          {settings.reranked ? `, reranked${settings.reranker ? ` with ${settings.reranker}` : ''}` : ''}
+          {total !== undefined ? ` · ${formatMs(total)}` : ''}
+        </p>
+        {groups.length > 1 ? (
+          <SegmentedControl
+            label="Arrange results"
+            value={grouping}
+            onValueChange={(next) => patch({ group: next === 'rank' ? null : next }, { replace: true })}
+            options={GROUPINGS}
+          />
+        ) : null}
+      </div>
 
       {results.length === 0 ? (
         <EmptyState
-          className="rounded-lg border border-line"
+          className="rounded-xl border border-line"
           icon={<SearchX size={20} aria-hidden="true" />}
           title="No matching passages"
           description={notice ?? 'Try different or fewer words, another search mode, or remove the document filter.'}
@@ -274,27 +325,28 @@ function Results({ data, listRef, stale, selectedId, previewOpen, patch }: Resul
           ) : notice ? (
             <Notice className="mb-3">{notice}</Notice>
           ) : null}
-          <ol ref={listRef} data-passage-list aria-label="Search results" className="space-y-3">
-            {results.map((hit: Hit) => (
-              <li key={hit.chunk_id}>
-                <PassageCard
-                  passage={hit}
-                  terms={hit.matched_terms}
-                  marker={hit.rank}
-                  navKey={hit.chunk_id}
-                  selected={hit.chunk_id === selectedId}
-                  onOpen={() => patch({ hit: hit.chunk_id }, { replace: previewOpen })}
-                  onKeyDown={(event) => {
-                    const next = movePassageFocus(event)
-                    // With the preview open, arrowing through results keeps it in step.
-                    if (next?.dataset.passage && previewOpen) patch({ hit: next.dataset.passage }, { replace: true })
-                  }}
-                >
-                  <RetrievalLine hit={hit} mode={settings.mode} />
-                </PassageCard>
-              </li>
-            ))}
-          </ol>
+          <div ref={listRef} data-passage-list>
+            {grouping === 'document' && groups.length > 1 ? (
+              <div aria-label="Search results grouped by document" role="group" className="space-y-6">
+                {groups.map((group) => {
+                  const headingId = `group-${group.documentId}`
+                  return (
+                    <section key={group.documentId} aria-labelledby={headingId}>
+                      <h3 id={headingId} className="mb-2 flex items-baseline gap-2 text-[13px] font-semibold text-ink">
+                        <span className="truncate">{group.title}</span>
+                        <span className="shrink-0 font-normal text-ink-3">{plural(group.hits.length, 'result')}</span>
+                      </h3>
+                      <ol className="space-y-3">{group.hits.map(card)}</ol>
+                    </section>
+                  )
+                })}
+              </div>
+            ) : (
+              <ol aria-label="Search results" className="space-y-3">
+                {results.map(card)}
+              </ol>
+            )}
+          </div>
           {canShowMore ? (
             <div className="mt-4 flex justify-center">
               <Button onClick={() => patch({ k: String(Math.min(settings.top_k * 2, MAX_TOP_K)) }, { replace: true })}>

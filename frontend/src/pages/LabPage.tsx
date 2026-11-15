@@ -4,6 +4,7 @@ import { errorMessage } from '@/api/client'
 import { useDocuments, useEvaluation, useLabSearch, useSystem } from '@/api/queries'
 import type { CollectionOut, EvalDataset, EvalReport, Hit, LabIn, LabOut, LabStage, SystemOut } from '@/api/types'
 import { DocumentFilter } from '@/components/documents/DocumentFilter'
+import { RankChart } from '@/components/lab/RankChart'
 import { PreviewLayout } from '@/components/passages/PreviewLayout'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -15,13 +16,12 @@ import { cx } from '@/lib/cx'
 import { formatCount, formatDateTime, formatMs, formatScore } from '@/lib/format'
 import { useDocumentTitle, useMediaQuery, WIDE_QUERY } from '@/lib/hooks'
 import { useUrlParams } from '@/lib/params'
+import type { StageKey } from '@/lib/rankChart'
 import { useSelectedPassage } from '@/lib/selection'
 
 export function Component() {
   return <WorkspaceBoundary>{(collection) => <LabScreen key={collection.id} collection={collection} />}</WorkspaceBoundary>
 }
-
-type StageKey = 'keyword' | 'semantic' | 'fused' | 'reranked'
 
 interface StageInfo {
   key: StageKey
@@ -157,6 +157,21 @@ function LabScreen({ collection }: { collection: CollectionOut }) {
   const lab = useLabSearch(submitted)
   const hitId = params.get('hit')
 
+  // `?q=` (from the command menu or a sample suggestion) runs that query with default settings.
+  const qParam = params.get('q')
+  const [seenQ, setSeenQ] = useState<string | null>(null)
+  if (qParam !== seenQ) {
+    setSeenQ(qParam)
+    const text = qParam?.trim() ?? ''
+    if (text !== '') {
+      setQuery(text)
+      setControls(SERVER_DEFAULTS)
+      setDocumentIds([])
+      setErrors({})
+      setSubmitted({ query: text, collection_id: collection.id, top_k: 10, rerank: true })
+    }
+  }
+
   const candidates = useMemo(() => {
     const data = lab.data
     return data ? [...data.keyword.results, ...data.semantic.results, ...data.fused.results, ...(data.reranked?.results ?? [])] : undefined
@@ -172,7 +187,8 @@ function LabScreen({ collection }: { collection: CollectionOut }) {
     const parsed = parseControls(controls)
     setErrors(parsed.errors)
     if (text === '' || Object.keys(parsed.errors).length > 0) return
-    patch({ hit: null }, { replace: true })
+    setSeenQ(text)
+    patch({ q: text, hit: null }, { replace: true })
     setSubmitted({
       query: text,
       collection_id: collection.id,
@@ -330,6 +346,21 @@ function LabResults({ data, stale, selectedId, onOpen }: LabResultsProps) {
             ))}
           </ul>
         )}
+      </section>
+
+      <section aria-labelledby="lab-movement">
+        <SectionHeading id="lab-movement">Rank movement</SectionHeading>
+        <RankChart
+          data={data}
+          activeId={traced}
+          onActive={setActiveId}
+          onOpen={(chunkId) => {
+            const hit = [data.reranked, data.fused, data.semantic, data.keyword]
+              .flatMap((stage) => stage?.results ?? [])
+              .find((candidate) => candidate.chunk_id === chunkId)
+            if (hit) onOpen(hit)
+          }}
+        />
       </section>
 
       <Latency data={data} />

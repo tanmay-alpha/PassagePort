@@ -10,9 +10,10 @@ import { defineConfig } from 'vitest/config'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const pdfjsRoot = path.join(root, 'node_modules', 'pdfjs-dist')
-// Runtime data pdf.js fetches on demand: CJK character maps, the 14 standard fonts and
-// image decoders. Served from our own origin because the CSP forbids any CDN.
-const PDFJS_DATA_DIRS = ['cmaps', 'standard_fonts', 'wasm']
+// Runtime data pdf.js fetches on demand: CJK character maps, the 14 standard fonts, image
+// decoders (wasm) and, since pdf.js 6, the CMYK ICC profile. Served from our own origin
+// because the CSP forbids any CDN.
+const PDFJS_DATA_DIRS = ['cmaps', 'standard_fonts', 'wasm', 'iccs']
 const PDFJS_PUBLIC_PATH = '/assets/pdfjs/'
 
 function pdfjsData(): Plugin {
@@ -41,9 +42,9 @@ function pdfjsData(): Plugin {
       if (!isBuild) return
       for (const dir of PDFJS_DATA_DIRS) {
         const source = path.join(pdfjsRoot, dir)
-        if (existsSync(source)) {
-          await cp(source, path.join(outDir, 'assets', 'pdfjs', dir), { recursive: true })
-        }
+        // A pdf.js upgrade that moves these must fail the build, not ship a viewer that 404s.
+        if (!existsSync(source)) throw new Error(`pdfjs-dist has no ${dir}/ directory; update PDFJS_DATA_DIRS`)
+        await cp(source, path.join(outDir, 'assets', 'pdfjs', dir), { recursive: true })
       }
     },
   }

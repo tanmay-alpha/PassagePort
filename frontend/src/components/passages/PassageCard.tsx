@@ -25,7 +25,6 @@ export interface PassageCardProps {
   className?: string
 }
 
-/** A passage that opens in the document viewer. The whole passage is one button. */
 /**
  * Arrow/Home/End movement between the passage buttons of the enclosing `data-passage-list`.
  * Returns the newly focused button, or null when the key was not a movement key.
@@ -48,6 +47,7 @@ export function movePassageFocus(event: KeyboardEvent<HTMLButtonElement>): HTMLB
   return next
 }
 
+/** A passage that opens in the document viewer. The whole passage is one button. */
 export function PassageCard({
   passage,
   terms,
@@ -64,7 +64,7 @@ export function PassageCard({
   return (
     <div
       className={cx(
-        'rounded-lg border bg-surface transition-colors duration-100',
+        'pp-card rounded-xl border bg-surface transition-[border-color,box-shadow] duration-150',
         selected ? 'border-accent shadow-[0_0_0_1px_var(--pp-accent)]' : 'border-line hover:border-line-strong',
         className,
       )}
@@ -76,7 +76,7 @@ export function PassageCard({
         aria-current={selected ? 'true' : undefined}
         onClick={onOpen}
         onKeyDown={onKeyDown}
-        className="block w-full rounded-lg px-4 pt-3 pb-3 text-left"
+        className="block w-full rounded-xl px-4 pt-3 pb-3 text-left"
       >
         <span className="flex items-center gap-2">
           {marker ? (
@@ -91,28 +91,5 @@ export function PassageCard({
       </button>
       {children ? <div className="px-4 pb-3">{children}</div> : null}
     </div>
-  )
-}
-
-export interface CitationChipProps {
-  refNumber: number
-  onActivate: () => void
-  active?: boolean
-}
-
-/** Inline numbered citation; activating it focuses the evidence and opens it in the viewer. */
-export function CitationChip({ refNumber, onActivate, active = false }: CitationChipProps) {
-  return (
-    <button
-      type="button"
-      onClick={onActivate}
-      aria-label={`Citation ${refNumber}: show the cited passage`}
-      className={cx(
-        'mx-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] items-center justify-center rounded px-1 align-[0.1em] font-sans text-[11px] font-semibold tabular-nums transition-colors duration-100',
-        active ? 'bg-accent text-on-accent' : 'bg-accent-soft text-accent hover:bg-accent hover:text-on-accent',
-      )}
-    >
-      {refNumber}
-    </button>
   )
 }

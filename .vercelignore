@@ -17,6 +17,6 @@ eval
 e2e
 docs
 mcp-server
-samples
+/samples
 **/*.log
 **/*.tsbuildinfo

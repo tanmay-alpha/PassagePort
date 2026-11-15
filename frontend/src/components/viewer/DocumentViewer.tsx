@@ -16,6 +16,8 @@ import { formatBytes, kindLabel, locatorNoun } from '@/lib/format'
 import { splitByCodePoints, type TextRange } from '@/lib/text'
 import { viewerPath } from '@/lib/workspace'
 
+import { HitStrip } from './HitStrip'
+
 // pdf.js is large; it is only downloaded when a PDF's Original tab is actually shown.
 const PdfPane = lazy(() => import('./PdfPane'))
 
@@ -28,6 +30,9 @@ export interface DocumentViewerProps {
   onPageChange: (page: number) => void
   /** The cited passage to highlight when its page is shown. */
   highlight: Passage | null
+  /** Other passages of the same result list, mapped onto this document's pages. */
+  related?: readonly Passage[]
+  onSelectRelated?: (passage: Passage) => void
   /** Present when embedded as a preview: adds "open full view" and close actions. */
   onClose?: () => void
 }
@@ -64,7 +69,15 @@ export function DocumentViewer(props: DocumentViewerProps) {
   return <LoadedViewer key={document.data.id} {...props} document={document.data} />
 }
 
-function LoadedViewer({ document, page, onPageChange, highlight, onClose }: DocumentViewerProps & { document: DocumentOut }) {
+function LoadedViewer({
+  document,
+  page,
+  onPageChange,
+  highlight,
+  related,
+  onSelectRelated,
+  onClose,
+}: DocumentViewerProps & { document: DocumentOut }) {
   const embedded = onClose !== undefined
   const isPdf = document.kind === 'pdf'
   const [tab, setTab] = useState<ViewerTab>(isPdf ? 'original' : 'text')
@@ -144,6 +157,15 @@ function LoadedViewer({ document, page, onPageChange, highlight, onClose }: Docu
               Go to passage
             </Button>
           </p>
+        ) : null}
+        {related && onSelectRelated && pageCount > 0 ? (
+          <HitStrip
+            documentId={document.id}
+            pageCount={pageCount}
+            related={related}
+            currentId={cited?.chunk_id ?? null}
+            onSelect={onSelectRelated}
+          />
         ) : null}
       </header>
 

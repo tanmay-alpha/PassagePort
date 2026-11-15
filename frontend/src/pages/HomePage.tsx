@@ -1,4 +1,4 @@
-import { FileUp, FolderPlus, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { FileText, FileUp, FolderPlus, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
@@ -18,6 +18,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/compo
 import { Page, PageHeader } from '@/components/ui/Page'
 import { formatBytes, formatRelative, plural } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
+import { SAMPLE_FILES, useLoadSamples } from '@/lib/samples'
 import { sectionPath } from '@/lib/workspace'
 
 export function Component() {
@@ -90,54 +91,118 @@ function Onboarding() {
   }
 
   return (
-    <Page className="max-w-3xl">
-      <h1 className="text-2xl font-semibold tracking-[-0.015em] text-ink">Welcome to PassagePort</h1>
-      <p className="mt-2 max-w-xl text-[15px] text-ink-2">
-        Search your own documents and get answers that point to the exact page they came from.
-      </p>
+    <Page className="max-w-4xl">
+      <div className="pp-hero -mx-4 rounded-2xl px-4 pt-6 pb-2 sm:-mx-6 sm:px-6 sm:pt-10">
+        <p className="text-[13px] font-medium text-accent">Search · Cite · Ask · Compare</p>
+        <h1 className="mt-2 font-serif text-[2rem] leading-tight font-semibold tracking-[-0.02em] text-ink sm:text-[2.5rem]">
+          Welcome to PassagePort
+        </h1>
+        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-ink-2">
+          Search your own documents and get answers that point to the exact page they came from.
+        </p>
+      </div>
 
-      <ol className="mt-8 grid gap-3 sm:grid-cols-3">
-        {STEPS.map((step, index) => (
-          <li key={step.title} className="rounded-lg border border-line bg-surface p-4">
-            <div className="flex items-center gap-2 text-ink-3">
-              <step.icon size={16} aria-hidden="true" />
-              <span className="text-xs font-medium">Step {index + 1}</span>
-            </div>
-            <h2 className="mt-3 text-sm font-semibold text-ink">{step.title}</h2>
-            <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{step.body}</p>
+      <div className="mt-8 grid gap-4 md:grid-cols-[1.1fr_1fr]">
+        <SampleCard />
+        <Card className="flex flex-col p-5">
+          <h2 className="text-[15px] font-semibold text-ink">Start with your own documents</h2>
+          <p className="mt-1 text-[13px] text-ink-2">Create an empty workspace, then add PDF, Word, Markdown or text files.</p>
+          <form onSubmit={onSubmit} noValidate className="mt-auto flex flex-col gap-3 pt-5">
+            <Field label="Name your first workspace" error={touched && trimmed.length === 0 ? 'Enter a name to continue.' : null}>
+              {(control) => (
+                <Input
+                  {...control}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={COLLECTION_NAME_MAX}
+                  placeholder="For example: Research papers"
+                  autoComplete="off"
+                />
+              )}
+            </Field>
+            <Button type="submit" variant="secondary" loading={create.isPending} className="self-start">
+              Create workspace
+            </Button>
+          </form>
+          {create.isError ? (
+            <Notice tone="danger" className="mt-3">
+              {errorMessage(create.error)}
+            </Notice>
+          ) : null}
+        </Card>
+      </div>
+
+      <section aria-labelledby="how-it-works" className="mt-10">
+        <h2 id="how-it-works" className="text-xs font-medium tracking-[0.06em] text-ink-3 uppercase">
+          How it works
+        </h2>
+        <ol className="mt-3 grid gap-x-6 gap-y-5 sm:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li key={step.title} className="flex gap-3">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-xs font-semibold text-ink-2 tabular-nums">
+                {index + 1}
+              </span>
+              <div>
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                  <step.icon size={14} className="text-ink-3" aria-hidden="true" />
+                  {step.title}
+                </h3>
+                <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </Page>
+  )
+}
+
+const SAMPLE_PHASE_LABELS = {
+  idle: 'Load sample documents',
+  fetching: 'Downloading samples…',
+  creating: 'Creating workspace…',
+} as const
+
+/** One click to a populated workspace: the bundled samples go through the real upload API. */
+function SampleCard() {
+  const samples = useLoadSamples()
+  const busy = samples.phase !== 'idle'
+  return (
+    <Card className="relative overflow-hidden border-accent/30 p-5 shadow-[0_1px_0_var(--pp-line),0_12px_32px_-18px_color-mix(in_srgb,var(--pp-accent)_45%,transparent)]">
+      <div className="flex items-center gap-2">
+        <span className="flex size-7 items-center justify-center rounded-md bg-accent text-on-accent">
+          <Sparkles size={14} aria-hidden="true" />
+        </span>
+        <h2 className="text-[15px] font-semibold text-ink">Try it in one click</h2>
+      </div>
+      <p className="mt-2 text-[13px] text-ink-2">
+        Loads four small sample files into a new workspace and indexes them, so you can search, ask and compare right away.
+      </p>
+      <ul className="mt-4 divide-y divide-line rounded-lg border border-line bg-bg/60" aria-label="Sample files">
+        {SAMPLE_FILES.map((file) => (
+          <li key={file.name} className="flex items-center gap-2.5 px-3 py-2 text-[13px]">
+            <FileText size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-ink">{file.description}</span>
+            <span className="shrink-0 font-mono text-[11px] text-ink-3">{file.name.split('.').pop()?.toUpperCase()}</span>
           </li>
         ))}
-      </ol>
-
-      <Card className="mt-6 p-5">
-        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <Field
-            label="Name your first workspace"
-            className="flex-1"
-            error={touched && trimmed.length === 0 ? 'Enter a name to continue.' : null}
-          >
-            {(control) => (
-              <Input
-                {...control}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={COLLECTION_NAME_MAX}
-                placeholder="For example: Research papers"
-                autoComplete="off"
-              />
-            )}
-          </Field>
-          <Button type="submit" variant="primary" loading={create.isPending} className="sm:mb-0">
-            Create workspace
-          </Button>
-        </form>
-        {create.isError ? (
-          <Notice tone="danger" className="mt-3">
-            {errorMessage(create.error)}
-          </Notice>
-        ) : null}
-      </Card>
-    </Page>
+      </ul>
+      <Button
+        variant="primary"
+        className="mt-4"
+        loading={busy}
+        disabled={!samples.ready}
+        icon={<Sparkles size={15} aria-hidden="true" />}
+        onClick={() => void samples.start()}
+      >
+        {SAMPLE_PHASE_LABELS[samples.phase]}
+      </Button>
+      {samples.error ? (
+        <Notice tone="danger" className="mt-3" title="The samples could not be loaded.">
+          {samples.error}
+        </Notice>
+      ) : null}
+    </Card>
   )
 }
 
@@ -146,6 +211,7 @@ function Dashboard({ collections }: { collections: CollectionOut[] }) {
   const [editing, setEditing] = useState<CollectionOut | null>(null)
   const [deleting, setDeleting] = useState<CollectionOut | null>(null)
   const navigate = useNavigate()
+  const samples = useLoadSamples()
 
   return (
     <Page>
@@ -153,11 +219,26 @@ function Dashboard({ collections }: { collections: CollectionOut[] }) {
         title="Workspaces"
         description="Each workspace is searched on its own. Open one to add documents, search, ask and compare."
         actions={
-          <Button variant="primary" icon={<Plus size={16} aria-hidden="true" />} onClick={() => setCreateOpen(true)}>
-            New workspace
-          </Button>
+          <>
+            <Button
+              loading={samples.phase !== 'idle'}
+              disabled={!samples.ready}
+              icon={<Sparkles size={15} aria-hidden="true" />}
+              onClick={() => void samples.start()}
+            >
+              {SAMPLE_PHASE_LABELS[samples.phase]}
+            </Button>
+            <Button variant="primary" icon={<Plus size={16} aria-hidden="true" />} onClick={() => setCreateOpen(true)}>
+              New workspace
+            </Button>
+          </>
         }
       />
+      {samples.error ? (
+        <Notice tone="danger" className="mb-4" title="The samples could not be loaded.">
+          {samples.error}
+        </Notice>
+      ) : null}
       <ul className="grid gap-4 sm:grid-cols-2">
         {collections.map((collection) => (
           <li key={collection.id}>

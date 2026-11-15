@@ -23,9 +23,11 @@ import { useSignOut } from '@/api/queries'
 import type { SessionOut } from '@/api/types'
 import { Logo } from '@/components/Logo'
 import { IconButton } from '@/components/ui/Button'
+import { Kbd } from '@/components/ui/Feedback'
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/Menu'
 import { useToast } from '@/components/ui/Toast'
 import { cx } from '@/lib/cx'
+import { modifierLabel } from '@/lib/palette'
 import { setThemePreference, useTheme } from '@/lib/theme'
 import { type ActiveWorkspace, type Section, sectionPath, SECTIONS } from '@/lib/workspace'
 
@@ -37,9 +39,9 @@ const NAV: Array<{ section: Section; label: string; icon: LucideIcon }> = [
   { section: 'lab', label: 'Search Lab', icon: FlaskConical },
 ]
 
-const ITEM = 'flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-100'
-const ITEM_IDLE = 'text-ink-2 hover:bg-subtle hover:text-ink'
-const ITEM_ACTIVE = 'bg-subtle text-ink'
+const ITEM = 'flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13.5px] font-medium transition-colors duration-100'
+const ITEM_IDLE = 'text-ink-2 hover:bg-sidebar-hover hover:text-ink'
+const ITEM_ACTIVE = 'bg-surface text-ink shadow-[0_0_0_1px_var(--pp-line),0_1px_2px_rgb(0_0_0/0.04)]'
 
 function currentSection(pathname: string): Section {
   const tail = pathname.split('/')[3]
@@ -51,11 +53,12 @@ export interface SidebarProps {
   session: SessionOut
   /** Called after any navigation so the mobile drawer can close. */
   onNavigate: () => void
+  onOpenPalette: () => void
   onCreateWorkspace: () => void
   onShowShortcuts: () => void
 }
 
-export function Sidebar({ workspace, session, onNavigate, onCreateWorkspace, onShowShortcuts }: SidebarProps) {
+export function Sidebar({ workspace, session, onNavigate, onOpenPalette, onCreateWorkspace, onShowShortcuts }: SidebarProps) {
   const { active, collections } = workspace
   const location = useLocation()
   const navigate = useNavigate()
@@ -63,16 +66,22 @@ export function Sidebar({ workspace, session, onNavigate, onCreateWorkspace, onS
   const dark = theme.resolved === 'dark'
 
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
-      <Link to="/" onClick={onNavigate} className="mx-1 mt-1 inline-flex self-start rounded-md" aria-label="PassagePort home">
+    <div className="flex h-full flex-col gap-3 p-3">
+      <Link to="/" onClick={onNavigate} className="mx-1 mt-1 mb-1 inline-flex self-start rounded-md" aria-label="PassagePort home">
         <Logo />
       </Link>
 
       <Menu>
         <MenuTrigger
-          className="flex h-10 w-full items-center gap-2 rounded-md border border-line bg-surface px-2.5 text-left text-sm transition-colors duration-100 hover:border-line-strong"
+          className="flex h-10 w-full items-center gap-2.5 rounded-lg border border-line bg-surface px-2 text-left text-sm transition-colors duration-100 hover:border-line-strong"
           aria-label={active ? `Workspace: ${active.name}. Switch workspace` : 'Choose a workspace'}
         >
+          <span
+            aria-hidden="true"
+            className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-xs font-semibold text-accent uppercase"
+          >
+            {active ? active.name.trim().charAt(0) || '·' : '·'}
+          </span>
           <span className="min-w-0 flex-1 truncate font-medium text-ink">
             {active ? active.name : workspace.isPending ? 'Loading…' : 'No workspace yet'}
           </span>
@@ -109,7 +118,24 @@ export function Sidebar({ workspace, session, onNavigate, onCreateWorkspace, onS
         </MenuContent>
       </Menu>
 
+      <button
+        type="button"
+        onClick={onOpenPalette}
+        aria-keyshortcuts="Control+K Meta+K"
+        className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-[13px] text-ink-3 transition-colors duration-100 hover:bg-sidebar-hover hover:text-ink-2"
+      >
+        <Search size={15} aria-hidden="true" />
+        <span className="flex-1">Search or jump to…</span>
+        <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+          <Kbd>{modifierLabel()}</Kbd>
+          <Kbd>K</Kbd>
+        </span>
+      </button>
+
       <nav aria-label="Workspace" className="flex flex-col gap-0.5">
+        <p className="px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-[0.06em] text-ink-3 uppercase" aria-hidden="true">
+          Workspace
+        </p>
         {NAV.map(({ section, label, icon: Icon }) =>
           active ? (
             <NavLink

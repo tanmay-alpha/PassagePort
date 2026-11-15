@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { type DragEvent, type FormEvent, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import { documentFileUrl, errorMessage } from '@/api/client'
@@ -28,6 +28,7 @@ import {
   useSystem,
 } from '@/api/queries'
 import type { CollectionOut, DocumentOut, LimitsOut } from '@/api/types'
+import { SampleSuggestions } from '@/components/samples/SampleSuggestions'
 import { DOCUMENT_STATE_LABELS, type DocumentState, documentState, StatusBadge } from '@/components/ui/Badge'
 import { Button, buttonClass, IconButton } from '@/components/ui/Button'
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog'
@@ -100,6 +101,8 @@ function Library({ collection }: { collection: CollectionOut }) {
           ) : null
         }
       />
+
+      {documents.data ? <SampleSuggestions collectionId={collection.id} documents={documents.data} /> : null}
 
       {system.data ? (
         <UploadArea collectionId={collection.id} limits={system.data.limits} prominent={documents.isSuccess && total === 0} />
@@ -192,7 +195,6 @@ function UploadArea({ collectionId, limits, prominent }: { collectionId: string;
   const queryClient = useQueryClient()
   const uploads = useUploads(collectionId)
   const input = useRef<HTMLInputElement>(null)
-  const [dragDepth, setDragDepth] = useState(0)
   const extensions = limits.allowed_extensions.map((extension) => `.${extension.replace(/^\./, '').toLowerCase()}`)
 
   function add(files: FileList | null) {
@@ -200,36 +202,23 @@ function UploadArea({ collectionId, limits, prominent }: { collectionId: string;
     enqueueUploads(collectionId, Array.from(files), limits, () => invalidateLibrary(queryClient, collectionId))
   }
 
-  function onDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault()
-    setDragDepth(0)
-    add(event.dataTransfer.files)
-  }
-
   const finished = uploads.filter((item) => !isActiveUpload(item))
   const problems = finished.filter((item) => item.status === 'failed' || item.status === 'rejected').length
 
   return (
     <section aria-label="Add documents">
+      {/* Dropping is handled once for the whole window by the shell's drop overlay. */}
       <div
-        onDragEnter={(event) => {
-          event.preventDefault()
-          setDragDepth((depth) => depth + 1)
-        }}
-        onDragLeave={() => setDragDepth((depth) => Math.max(depth - 1, 0))}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={onDrop}
         className={cx(
-          'flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 text-center transition-colors duration-100 sm:flex-row sm:text-left',
+          'flex flex-col items-center gap-3 rounded-xl border border-dashed border-line-strong bg-surface px-4 text-center sm:flex-row sm:text-left',
           prominent ? 'py-8 sm:px-6' : 'py-4',
-          dragDepth > 0 ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface',
         )}
       >
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-subtle text-ink-2">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
           <FileUp size={18} aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-ink">{dragDepth > 0 ? 'Drop to upload' : 'Drop files here to add them'}</p>
+          <p className="text-sm font-medium text-ink">Drop files anywhere in this workspace</p>
           <p className="mt-0.5 text-[13px] text-ink-3">
             {extensions.join(', ')} · up to {formatBytes(limits.max_upload_bytes)} per file
           </p>

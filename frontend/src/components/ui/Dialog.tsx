@@ -12,8 +12,8 @@ const OVERLAY = 'fixed inset-0 z-50 bg-overlay animate-fade-in'
 const CLOSE =
   'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors duration-100 hover:bg-subtle hover:text-ink'
 
-/** These controlled surfaces have no Radix Trigger to restore focus to. */
-function useOpenerFocus() {
+/** Controlled surfaces without a Radix Trigger: return focus to whatever opened them. */
+export function useOpenerFocus() {
   const opener = useRef<HTMLElement | null>(null)
   return {
     onOpenAutoFocus() {
