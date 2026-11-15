@@ -27,8 +27,10 @@ accounts mode behind HTTPS.
 | XSS / HTML injection from document text or model output | The UI renders passages, answers and filenames as text (React escaping; no `dangerouslySetInnerHTML`, no Markdown-to-HTML). Original files are served with a fixed `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox` and as attachments unless they are PDFs. The app itself is served with a strict CSP (`script-src 'self'`). | `test_security.py`, frontend tests |
 | Unauthorized access, cross-user leakage | Accounts mode: argon2id password hashes; random 256-bit session tokens stored only as SHA-256; `HttpOnly`, `SameSite=Lax`, `Secure` cookies; sessions expire server-side and are rotated on login. Every repository query filters by owner. Search indexes are per collection and a request can only name collections and documents it owns. | `test_auth.py`, `test_isolation.py`, `test_search*.py` |
 | CSRF, DNS rebinding | State-changing requests must carry `X-PassagePort-CSRF: 1` and, when an `Origin` header is present, it must match the server's origin. Local mode additionally rejects non-loopback `Host` headers. CORS is off unless origins are listed explicitly. | `test_security.py` |
-| Credential stuffing | Login attempts reserve username and client-address throttle slots atomically **before** Argon2 verification, including concurrent requests; failures return one generic message; unknown usernames perform password verification against a dummy hash. | `test_auth.py` |
-| Resource exhaustion | Compute-heavy endpoints are rate-limited per user; query length, `top_k`, candidates and compared documents are bounded by the request schemas; one indexing job runs at a time per process. | `test_search*.py` |
+| Credential stuffing | Login attempts reserve username and client-address throttle slots atomically **before** Argon2 verification, including concurrent requests; failures return one generic message; unknown usernames perform password verification against a dummy hash. At most two Argon2 computations (64 MiB each) run at once per process, so a burst of attempts queues instead of exhausting memory. | `test_auth.py`, `test_abuse.py` |
+| Throttle evasion via client addresses | Throttles key on `request.client`: the TCP peer, or the `X-Forwarded-For` client when uvicorn runs with `--proxy-headers` (the Docker image does) and the peer is listed in `FORWARDED_ALLOW_IPS` (default `127.0.0.1`). The app never reads forwarding headers itself, so a client cannot choose its own key. IPv6 clients are keyed per /64, which one subscriber typically controls. | `test_abuse.py` |
+| Anonymous account flooding, filling the database | Sign-up and guest creation share a per-address throttle (10 per 10 minutes). At most `PP_MAX_GUESTS` (default 100) guest accounts exist at once, counted in the database under a lock (a PostgreSQL advisory lock, SQLite's write lock), so concurrent requests and multiple instances cannot overrun it. `PP_MAX_DATABASE_MB` sets a server-wide ceiling on the database size: uploads are refused with 507 once it is reached, and the size is checked again right before each index is written, because extracted text can be many times the file size. | `test_abuse.py` |
+| Resource exhaustion (CPU, memory, response size) | Compute-heavy endpoints are rate-limited per user (idle users are dropped from the table); query length, `top_k`, candidates, compared documents and document filters (at most 1,000 ids) are bounded by the request schemas; one indexing job runs at a time per process. Chunks are capped at `chunk_max_tokens × 16` characters even when the tokenizer counts a long run as one token, which bounds every passage in responses and in answer/compare processing. Sentence splitting is linear-time, and sentence matching in Compare has a fixed work budget per aligned group. The in-memory index cache holds at most 16 collections and 100,000 chunks. | `test_search*.py`, `test_abuse.py` |
 | Concurrent quota bypass | Upload document/storage quotas, the collection limit (`PP_MAX_COLLECTIONS_PER_USER`, default 100), and the API-token limit (20) are checked under a per-user database row lock. SQLite uses its write lock instead. Concurrent instances therefore cannot independently spend the same remaining quota. | `test_uploads.py`, `test_collections.py`, `test_auth.py` |
 | Stale indexing workers | The claimed attempt fences every worker mutation: the initial `processing` status, retries, failures, and the transaction that replaces the index. A worker resuming after a successor completed cannot change the document or its index. | `test_jobs.py` |
 | Blob/document lifecycle races | Database blobs are created and deleted in their document transaction. Collection and guest deletion lock the owner before collecting blob keys, so an in-flight upload cannot leave stored bytes behind. The DB orphan sweep deletes only rows without a document reference in the same SQL statement. | `test_persistence.py` |
@@ -47,8 +49,25 @@ your machine.
 
 - **Not encrypted at rest.** Files and the database are stored as-is; use disk encryption.
 - **Compute rate limits and credential throttles are per process and in memory.** Multiple server
-  processes do not share these counters. Document, storage, collection and API-token quotas are
-  database-serialized and do apply across processes sharing the same database.
+  processes do not share these counters, and the compute rate limit is per account, so many
+  accounts can still keep a small instance busy. Document, storage, collection, API-token and guest
+  limits and the database ceiling are database-serialized and do apply across processes sharing the
+  same database.
+- **Client addresses are only as good as the proxy configuration.** Behind a reverse proxy set
+  `FORWARDED_ALLOW_IPS` to that proxy's address, and only when it overwrites (not appends to)
+  `X-Forwarded-For` or is the only way to reach the server. Without it, every client appears as
+  the proxy and shares one throttle.
+- **The database ceiling is shared and approximate.** One account can use all remaining room, after
+  which nobody can upload until data is deleted (guest data expires with its guests). Concurrent
+  indexing workers can each overshoot it by one document's index. Per-user storage quotas count
+  file bytes; extracted text (bounded per document by `PP_MAX_DOCUMENT_CHARS`) comes on top.
+- **Indexing is first come, first served.** One account can queue up to its document quota and keep
+  the single worker of a process busy; each job is bounded by `PP_PARSE_TIMEOUT_SECONDS` plus
+  embedding time.
+- **The guest cap trades availability for storage.** Someone rotating addresses can hold all
+  `PP_MAX_GUESTS` slots until those guests expire; registered accounts keep working.
+- **Older oversized chunks** (stored before the chunk character cap) keep their size until the
+  document is re-indexed; sentence splitting and Compare stay bounded for them.
 - **Filesystem blobs cannot join SQL transactions.** Failed uploads remove their files; deletion
   unlinks files after commit. A startup sweep removes crash leftovers older than one hour.
   The database blob backend has transactional creation/deletion instead.
@@ -63,26 +82,29 @@ your machine.
   are purged on startup, guest creation, and every ten minutes between indexing jobs in thread
   mode. Cleanup can be delayed by an in-flight indexing job. Manual job mode has no periodic worker.
 
-## Audit verification (2026-11-14)
+## Audit verification (2026-11-15, public guest-enabled deployment)
 
-The backend security/storage regression selection ran with the hashing embedder and no reranker;
-it does not measure production model quality or replace a penetration test.
+The audit assumed the hosted shape: accounts mode, open sign-up and guests, PostgreSQL with
+database blobs, one container behind Vercel's proxy. Tests ran with the hashing embedder and no
+reranker; they do not measure production model quality or replace a penetration test.
 
-- **SQLite:** 335 passed in 106.27 seconds across authentication, collections, documents, isolation,
-  jobs, parsing, persistence, HTTP security and uploads.
-- **Real PostgreSQL 17.12:** 228 passed, one SQLite-file-location test skipped, in 154.81 seconds
-  across persistence, uploads, collections, authentication, jobs, documents and isolation.
-  The throwaway `postgres:17` container published only on `127.0.0.1:55433`; port 55432 was already
-  occupied and its existing database was not touched.
-- Every PostgreSQL test used a fresh `pp_test_<uuid>` schema, explicitly asserted the PostgreSQL
-  dialect and its current schema, and dropped only that schema afterward. Final SQL checks found
-  **zero test schemas and zero public tables**. The test container and its anonymous volume were removed.
-- Targeted Ruff checks passed; mypy reported no issues in 28 owned source files.
-- Regressions exercise a 30,000-entry DOCX rejection before ZIP entry allocation, concurrent
-  upload/storage/collection/token quotas, HTTP login bursts before hashing, stale-worker status
-  and result fencing, in-flight blob sweeping, transaction rollback, and periodic guest cleanup.
-  Invalid zero/negative embedding batch sizes, job leases and attempt counts fail configuration
-  validation instead of starting broken workers. Exception logging remains type-only even at DEBUG.
+- **Client addresses on Vercel (observed):** the container's uvicorn logged the real client
+  address with port 0 (rewritten from `X-Forwarded-For` by `--proxy-headers`, so Vercel's proxy
+  connects from `127.0.0.1`), and a client-supplied `X-Forwarded-For` was replaced by Vercel, not
+  passed through. `FORWARDED_ALLOW_IPS` therefore needs no setting there.
+- **Measured before the fixes:** splitting 60,000 `!` characters into sentences took 51 s, a
+  60,000-character word before a detached period 30 s, and diffing two near-identical
+  20,000-character sentences 54 s; a Compare request over two such stored passages took 50 s; a
+  40,000-id document filter produced a 500. After: all 24 tests of `test_abuse.py` run in about 3 s.
+- **SQLite:** the whole backend suite, 571 passed in 77 seconds. The 24 new tests in
+  `test_abuse.py` were also run against the previous code: 21 failed (the 3 that passed guard
+  behaviour that was already correct).
+- **Real PostgreSQL 16.15:** abuse, authentication, uploads, jobs, persistence, documents,
+  collections and isolation, 252 passed and one SQLite-file-location test skipped, in 107 seconds,
+  in a throwaway `postgres:16` container published only on `127.0.0.1:55447`. Every test used a
+  fresh `pp_test_<uuid>` schema; final SQL checks found zero test schemas and zero public tables,
+  and the container was removed.
+- `ruff check`, `ruff format --check` and `mypy passageport` (71 source files) passed.
 
 ## Reporting
 

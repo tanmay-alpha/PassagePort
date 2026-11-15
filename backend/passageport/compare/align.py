@@ -14,6 +14,7 @@ meaning: two differently worded sentences are simply reported as unique to their
 from __future__ import annotations
 
 import re
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -27,6 +28,12 @@ from passageport.answer.sentences import split_sentences, strip_list_marker
 # (difflib ratio over characters): the same sentence up to small edits.
 SENTENCE_MATCH_RATIO = 0.9
 VALUE_PLACEHOLDER = "___"
+# difflib's ratio() takes up to len(a) * len(b) steps on repetitive text, and every candidate pair
+# costs a Python-level comparison. Passages are attacker-controlled, so one ``diff_passages`` call
+# may spend at most this many character steps on fuzzy matching (normal passages use well under a
+# tenth of it); once spent, remaining sentences only pair up when equal after normalization.
+FUZZY_MATCH_BUDGET = 3_000_000
+_PAIR_OVERHEAD = 64  # charged per visited candidate pair, for the work besides the characters
 
 
 # --------------------------------------------------------------------------- passage alignment
@@ -269,17 +276,61 @@ def _analyse(text: str) -> _Sentence:
     return _Sentence(text.strip(), display, masked, tuple(values), polarity)
 
 
-def _counterpart(sentence: _Sentence, pool: Sequence[_Sentence], used: set[int]) -> int | None:
-    """Index of the unused sentence in ``pool`` most similar to ``sentence``, if similar enough."""
+class _Budget:
+    def __init__(self, steps: int) -> None:
+        self.remaining = steps
+
+    def spend(self, steps: int) -> bool:
+        """Reserve ``steps``; once a reservation fails, every later one fails too."""
+        if steps > self.remaining:
+            self.remaining = 0
+            return False
+        self.remaining -= steps
+        return True
+
+
+def _exact_index(pool: Sequence[_Sentence]) -> dict[str, deque[int]]:
+    """Positions of every normalized sentence, in pool order."""
+    index: dict[str, deque[int]] = {}
+    for i, sentence in enumerate(pool):
+        index.setdefault(sentence.masked, deque()).append(i)
+    return index
+
+
+def _counterpart(
+    sentence: _Sentence,
+    pool: Sequence[_Sentence],
+    used: set[int],
+    exact: Mapping[str, deque[int]],
+    budget: _Budget,
+) -> int | None:
+    """Index of the unused sentence in ``pool`` most similar to ``sentence``, if similar enough.
+
+    An exact (normalized) match wins, the first one in pool order; otherwise the best fuzzy match.
+    """
+    positions = exact.get(sentence.masked)
+    while positions and positions[0] in used:
+        positions.popleft()  # used only grows, so each position is skipped once
+    if positions:
+        return positions[0]
     best: tuple[float, int] | None = None
+    size = len(sentence.masked)
     for i, other in enumerate(pool):
+        if not budget.spend(_PAIR_OVERHEAD):
+            break
         if i in used:
             continue
-        if other.masked == sentence.masked:
-            return i
-        matcher = SequenceMatcher(None, sentence.masked, other.masked, autojunk=False)
-        if matcher.real_quick_ratio() < SENTENCE_MATCH_RATIO or matcher.quick_ratio() < SENTENCE_MATCH_RATIO:
+        total = size + len(other.masked)
+        # difflib's real_quick_ratio(), from the lengths alone.
+        if total and 2.0 * min(size, len(other.masked)) / total < SENTENCE_MATCH_RATIO:
             continue
+        if not budget.spend(total):
+            break
+        matcher = SequenceMatcher(None, sentence.masked, other.masked, autojunk=False)
+        if matcher.quick_ratio() < SENTENCE_MATCH_RATIO:
+            continue
+        if not budget.spend(size * len(other.masked)):
+            break
         ratio = matcher.ratio()
         if ratio >= SENTENCE_MATCH_RATIO and (best is None or ratio > best[0]):
             best = (ratio, i)
@@ -307,13 +358,15 @@ def diff_passages(texts: Mapping[str, str]) -> PassageDiff:
     sentences = {doc: [_analyse(s.text) for s in split_sentences(texts[doc])] for doc in document_ids}
     anchor_id, others = document_ids[0], document_ids[1:]
     used: dict[str, set[int]] = {doc: set() for doc in document_ids}
+    exact = {doc: _exact_index(sentences[doc]) for doc in others}
+    budget = _Budget(FUZZY_MATCH_BUDGET)
     shared: list[str] = []
     differences: list[ValueDifference] = []
 
     for position, sentence in enumerate(sentences[anchor_id]):
         matches: dict[str, int] = {}
         for doc in others:
-            found = _counterpart(sentence, sentences[doc], used[doc])
+            found = _counterpart(sentence, sentences[doc], used[doc], exact[doc], budget)
             if found is None:
                 break
             matches[doc] = found

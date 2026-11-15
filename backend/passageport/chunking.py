@@ -25,6 +25,13 @@ from passageport.ml.protocols import Embedder
 # documents are then reported as stale and get new chunk ids when re-indexed.
 ALGORITHM = "semchunk-1"
 _TOKEN_CACHE_SIZE = 8192
+# Chunks are sized in model tokens, but a tokenizer can map a long run of text to very few tokens
+# (WordPiece turns any word over 100 characters into a single [UNK]), so a crafted page could yield
+# one chunk of megabytes that every search result, answer and comparison then has to process.
+# Counting at least one token per MAX_CHARS_PER_TOKEN characters caps a chunk at
+# ``chunk_max_tokens * MAX_CHARS_PER_TOKEN`` characters. Ordinary prose and code average 3-6
+# characters per token, so their chunk boundaries do not change.
+MAX_CHARS_PER_TOKEN = 16
 
 
 def chunker_version(settings: Settings) -> str:
@@ -90,12 +97,16 @@ def chunk_pages(pages: Sequence[ParsedPage], embedder: Embedder, settings: Setti
     # A per-call cache: the splitter counts the same substrings many times, but nothing derived
     # from document text may outlive the indexing job.
     count_tokens = lru_cache(maxsize=_TOKEN_CACHE_SIZE)(embedder.count_tokens)
+
+    def size_in_tokens(text: str) -> int:
+        return max(count_tokens(text), -(-len(text) // MAX_CHARS_PER_TOKEN))
+
     drafts: list[ChunkDraft] = []
     for page in pages:
         if not page.text.strip():
             continue
         for start, end in _spans(
-            page.text, settings.chunk_max_tokens, settings.chunk_overlap_tokens, count_tokens
+            page.text, settings.chunk_max_tokens, settings.chunk_overlap_tokens, size_in_tokens
         ):
             text = page.text[start:end]
             drafts.append(

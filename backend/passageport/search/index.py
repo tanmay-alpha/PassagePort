@@ -26,6 +26,11 @@ from passageport.search.tokenize import tokenize
 
 VECTOR_SEARCH = "exact cosine (brute force over a float32 matrix)"
 MAX_CACHED_COLLECTIONS = 16
+# Total chunks the cache may hold across collections. A count of collections alone does not bound
+# memory: each cached chunk keeps its text, embedding and postings (a few KB), and one account can
+# fill a collection with hundreds of thousands of chunks. The most recently used index is always
+# kept, even when it alone is larger.
+MAX_CACHED_CHUNKS = 100_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,8 +148,11 @@ def build_index(conn: Connection, collection_id: str, embedding_version: str) ->
 class IndexCache:
     """Thread-safe LRU of collection indexes, validated against the database on every use."""
 
-    def __init__(self, capacity: int = MAX_CACHED_COLLECTIONS) -> None:
+    def __init__(
+        self, capacity: int = MAX_CACHED_COLLECTIONS, chunk_capacity: int = MAX_CACHED_CHUNKS
+    ) -> None:
         self._capacity = capacity
+        self._chunk_capacity = chunk_capacity
         self._lock = threading.Lock()
         self._entries: OrderedDict[str, CollectionIndex] = OrderedDict()
         self._build_locks: dict[str, threading.Lock] = {}
@@ -181,8 +189,12 @@ class IndexCache:
             with self._lock:
                 self._entries[collection_id] = entry
                 self._entries.move_to_end(collection_id)
-                while len(self._entries) > self._capacity:
-                    evicted, _ = self._entries.popitem(last=False)
+                cached_chunks = sum(len(cached) for cached in self._entries.values())
+                while len(self._entries) > 1 and (
+                    len(self._entries) > self._capacity or cached_chunks > self._chunk_capacity
+                ):
+                    evicted, dropped = self._entries.popitem(last=False)
+                    cached_chunks -= len(dropped)
                     self._build_locks.pop(evicted, None)
             return entry, False
 

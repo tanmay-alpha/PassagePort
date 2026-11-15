@@ -8,18 +8,19 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import logging
 import secrets
 from datetime import datetime, timedelta
 
 from fastapi import Request
-from sqlalchemy import Connection, Engine, Row, delete, insert, or_, select, update
+from sqlalchemy import Connection, Engine, Row, delete, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from passageport.auth.passwords import hash_password, needs_rehash, verify_password
 from passageport.auth.throttle import login_throttle, signup_throttle
 from passageport.config import Settings
-from passageport.db.repos import blob_keys_of_users, lock_user, new_id
+from passageport.db.repos import blob_keys_of_users, lock_guest_creation, lock_user, new_id
 from passageport.db.schema import sessions, users, utcnow
 from passageport.domain import User
 from passageport.errors import ApiError, not_found
@@ -48,7 +49,23 @@ def _to_user(row: Row) -> User:
 
 
 def client_address(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """The key that throttles count a client under.
+
+    ``request.client`` is the TCP peer, or the client named in ``X-Forwarded-For`` when uvicorn
+    runs with ``--proxy-headers`` and the peer is listed in ``FORWARDED_ALLOW_IPS`` (127.0.0.1 by
+    default, i.e. a proxy in the same container or host). IPv6 clients are counted per /64: one
+    subscriber usually controls a whole /64, so a per-address key would let them rotate freely.
+    """
+    host = request.client.host if request.client else ""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host or "unknown"
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.IPv6Network((address, 64), strict=False))
+    return str(address)
 
 
 # --------------------------------------------------------------------------- request authentication
@@ -241,7 +258,11 @@ def login(
 
 
 def create_guest(engine: Engine, settings: Settings, address: str) -> tuple[User, str]:
-    """Create a throw-away account. It and everything it uploads is purged after the guest TTL."""
+    """Create a throw-away account. It and everything it uploads is purged after the guest TTL.
+
+    At most ``max_guests`` guests exist at once: the per-address throttle alone does not bound
+    what many addresses together can create, and every guest gets the full per-user quotas.
+    """
     _require_accounts_mode(settings)
     if not settings.allow_guests:
         raise ApiError(403, "forbidden", "Guest access is disabled on this server.")
@@ -251,6 +272,19 @@ def create_guest(engine: Engine, settings: Settings, address: str) -> tuple[User
     guest_expiry = created_at + timedelta(hours=settings.guest_ttl_hours)
     user = User(id=new_id(), username=f"{GUEST_PREFIX}{secrets.token_hex(4)}", is_guest=True)
     with engine.begin() as conn:
+        lock_guest_creation(conn)  # the count below must not race with a concurrent creation
+        live_since = created_at - timedelta(hours=settings.guest_ttl_hours)
+        live = conn.execute(
+            select(func.count())
+            .select_from(users)
+            .where(users.c.is_guest.is_(True), users.c.created_at >= live_since)
+        ).scalar_one()
+        if live >= settings.max_guests:
+            raise ApiError(
+                429,
+                "rate_limited",
+                "Guest access is at capacity right now. Try again later, or create an account.",
+            )
         conn.execute(
             insert(users).values(id=user.id, username=user.username, is_guest=True, created_at=created_at)
         )

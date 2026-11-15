@@ -19,7 +19,7 @@ from sqlalchemy import Connection, Engine, delete, insert, select, update
 from passageport import parsing
 from passageport.chunking import chunk_id, chunk_pages, chunker_version
 from passageport.config import Settings
-from passageport.db.repos import bump_index_version
+from passageport.db.repos import bump_index_version, database_has_room
 from passageport.db.schema import chunks, documents, pages, utcnow
 from passageport.domain import ChunkDraft, ParsedPage
 from passageport.ml.protocols import to_blob
@@ -30,6 +30,7 @@ log = logging.getLogger("passageport.ingest")
 
 GENERIC_FAILURE = "Indexing failed because of an unexpected server error. Try re-indexing the document."
 REINDEX_FAILURE_PREFIX = "Last re-index failed: "
+STORAGE_FULL = "This server is out of storage space, so the document could not be indexed. Try again later."
 _INSERT_BATCH = 500
 
 
@@ -50,6 +51,13 @@ class PreparedIndex:
     embeddings: np.ndarray  # (len(drafts), dimensions) float32
     embedding_version: str
     chunker_version: str
+
+    @property
+    def stored_bytes(self) -> int:
+        """Approximate size of what ``store_index`` writes: page text, chunk text, embeddings."""
+        text = sum(len(page.text.encode()) for page in self.pages)
+        text += sum(len(draft.text.encode()) for draft in self.drafts)
+        return text + self.embeddings.nbytes
 
 
 def prepare_index(kind: str, title: str, data: bytes, settings: Settings) -> PreparedIndex:
@@ -201,4 +209,8 @@ def index_document(
     with engine.begin() as conn:
         if fence is not None and not fence(conn):
             return False
+        # Checked last, right before the write: an upload accepted while there was room can expand
+        # into far more text than its file size (compressed PDFs), and must not overfill the database.
+        if not database_has_room(conn, settings.max_database_mb, prepared.stored_bytes):
+            raise IndexingError(STORAGE_FULL)
         return store_index(conn, document_id, document.sha256, prepared)

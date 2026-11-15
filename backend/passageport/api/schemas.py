@@ -262,11 +262,16 @@ class ChunkOut(Passage):
 
 # --------------------------------------------------------------------------- search
 
+# A document filter names documents of one collection; the bound keeps the ownership query within
+# database parameter limits (an unbounded list produced a 500 from the SQL driver).
+MAX_DOCUMENT_FILTER = 1000
+
 
 class SearchIn(Schema):
     query: str = Field(min_length=1)
     collection_id: str
-    document_ids: list[str] | None = None  # restrict to these documents
+    # Restrict the search to these documents.
+    document_ids: list[str] | None = Field(default=None, max_length=MAX_DOCUMENT_FILTER)
     mode: SearchMode = "hybrid"
     rerank: bool | None = None  # None -> server default
     top_k: int = Field(default=8, ge=1, le=50)
@@ -308,7 +313,7 @@ class SearchOut(Schema):
 class AskIn(Schema):
     question: str = Field(min_length=1)
     collection_id: str
-    document_ids: list[str] | None = None
+    document_ids: list[str] | None = Field(default=None, max_length=MAX_DOCUMENT_FILTER)
     top_k: int = Field(default=6, ge=1, le=12)
 
 
@@ -395,7 +400,7 @@ class CompareOut(Schema):
 class LabIn(Schema):
     query: str = Field(min_length=1)
     collection_id: str
-    document_ids: list[str] | None = None
+    document_ids: list[str] | None = Field(default=None, max_length=MAX_DOCUMENT_FILTER)
     top_k: int = Field(default=10, ge=1, le=30)
     candidates: int | None = Field(default=None, ge=1, le=200)
     rrf_k: int | None = Field(default=None, ge=1, le=1000)

@@ -174,6 +174,13 @@ def upload_document(
                 duplicate = True
             else:
                 _check_quota(repos.user_usage(conn, user.id), len(data), settings)
+                in_database = len(data) if settings.blob_backend == "db" else 0
+                if not repos.database_has_room(conn, settings.max_database_mb, in_database):
+                    raise ApiError(
+                        507,
+                        "storage_full",
+                        "This server is out of storage space for new documents. Try again later.",
+                    )
                 blob_key = new_blob_key()
                 store.put(blob_key, data, conn)
                 document_id = repos.insert_document(

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     signup_code: SecretStr | None = None
     allow_guests: bool = False
     guest_ttl_hours: int = 24
+    # Guest accounts that may exist at the same time, server-wide. Counted in the database under a
+    # lock, so it holds across instances. Anonymous visitors can then store at most max_guests x the
+    # per-user quotas; further "continue as guest" requests get 429 until older guests expire.
+    max_guests: int = Field(default=100, ge=1)
     session_ttl_hours: int = 24 * 14
     cookie_secure: bool = True
     cors_origins: list[str] = []
@@ -46,6 +50,11 @@ class Settings(BaseSettings):
     max_documents_per_user: int = 300
     max_storage_mb_per_user: int = 500
     max_query_chars: int = 1000
+    # Server-wide ceiling on the size of the database in MB; 0 = none. Once reached, uploads are
+    # refused (507) and queued documents fail instead of being indexed, so open sign-up or guest
+    # access cannot fill a size-limited database. Measured with pg_database_size() on PostgreSQL and
+    # the page count on SQLite. Includes the original files when blob_backend is "db".
+    max_database_mb: int = Field(default=0, ge=0)
     rate_limit_per_minute: int = 120  # per user, search/ask/compare/lab endpoints
 
     # --- models ------------------------------------------------------------

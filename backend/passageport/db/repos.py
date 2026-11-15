@@ -9,7 +9,19 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, Connection, Row, Select, case, delete, func, insert, select, update
+from sqlalchemy import (
+    ColumnElement,
+    Connection,
+    Row,
+    Select,
+    case,
+    delete,
+    false,
+    func,
+    insert,
+    select,
+    update,
+)
 from sqlalchemy.exc import IntegrityError
 
 from passageport.db.schema import chunks, collections, documents, jobs, pages, users, utcnow
@@ -17,6 +29,8 @@ from passageport.errors import ApiError, not_found
 
 ACTIVE_JOB_STATUSES = ("queued", "running")
 IN_PROGRESS_STATUSES = ("uploaded", "processing")
+# Arbitrary constant naming the PostgreSQL advisory lock that serializes guest creation.
+_GUEST_CREATION_LOCK = 0x5050_6775_6573_74
 
 
 def new_id() -> str:
@@ -41,6 +55,35 @@ def lock_user(conn: Connection, user_id: str) -> None:
     if conn.dialect.name == "sqlite":
         conn.execute(update(users).where(users.c.id == user_id).values(is_guest=users.c.is_guest))
     conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update()).scalar_one()
+
+
+def lock_guest_creation(conn: Connection) -> None:
+    """Serialize the rest of this transaction with every other guest creation, server-wide.
+
+    PostgreSQL: a transaction-scoped advisory lock, which also holds across instances. SQLite: a
+    write statement (matching no row) takes the database-wide write lock.
+    """
+    if conn.dialect.name == "postgresql":
+        conn.execute(select(func.pg_advisory_xact_lock(_GUEST_CREATION_LOCK)))
+    else:
+        conn.execute(update(users).where(false()).values(is_guest=users.c.is_guest))
+
+
+def database_size_bytes(conn: Connection) -> int:
+    """Bytes the database occupies: pg_database_size() on PostgreSQL, used pages on SQLite."""
+    if conn.dialect.name == "postgresql":
+        return int(conn.execute(select(func.pg_database_size(func.current_database()))).scalar_one())
+    page_size = conn.exec_driver_sql("PRAGMA page_size").scalar_one()
+    page_count = conn.exec_driver_sql("PRAGMA page_count").scalar_one()
+    free_pages = conn.exec_driver_sql("PRAGMA freelist_count").scalar_one()
+    return int(page_size) * (int(page_count) - int(free_pages))
+
+
+def database_has_room(conn: Connection, max_database_mb: int, extra_bytes: int) -> bool:
+    """Would ``extra_bytes`` more still fit under ``PP_MAX_DATABASE_MB`` (0 = no ceiling)?"""
+    if max_database_mb <= 0:
+        return True
+    return database_size_bytes(conn) + extra_bytes <= max_database_mb * 1024 * 1024
 
 
 # --------------------------------------------------------------------------- collections
