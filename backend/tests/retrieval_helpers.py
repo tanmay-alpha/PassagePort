@@ -13,6 +13,7 @@ only assertion is the status check in ``Workspace.ok``).
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -310,6 +311,9 @@ def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     """Factory: ``make_workspace(embedder=..., **settings)`` -> a fresh database and API client."""
     engines: list[Engine] = []
 
+    def _env(value: Any) -> str:
+        return json.dumps(value) if isinstance(value, list) else str(value)
+
     def factory(embedder: Any | None = None, **overrides: Any) -> Workspace:
         values: dict[str, Any] = {
             "data_dir": tmp_path / f"data{len(engines)}",
@@ -319,10 +323,11 @@ def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
             # The hashing embedder scores unrelated texts near 0 and texts sharing words well above.
             "min_vector_similarity": 0.3,
             "log_level": "WARNING",
+            "local_allowed_hosts": ["localhost", "127.0.0.1", "[::1]", "testserver"],
         }
         values.update(overrides)
         for key, value in values.items():
-            monkeypatch.setenv(f"PP_{key.upper()}", str(value))
+            monkeypatch.setenv(f"PP_{key.upper()}", _env(value))
         monkeypatch.setitem(Settings.model_config, "env_file", None)
         get_settings.cache_clear()
         settings = get_settings()

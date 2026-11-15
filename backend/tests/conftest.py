@@ -142,6 +142,8 @@ def make_settings(
             "job_mode": "manual",
             "cookie_secure": False,
             "log_level": "WARNING",
+            # Starlette's TestClient sends Host: testserver; production defaults do not allow it.
+            "local_allowed_hosts": ["localhost", "127.0.0.1", "[::1]", "testserver"],
         }
         if isolated_database_url:
             values["database_url"] = isolated_database_url

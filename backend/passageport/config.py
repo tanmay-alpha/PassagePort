@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # local: single implicit user, only loopback Host headers are served.
     # accounts: username/password accounts, cookie sessions, per-user isolation.
     auth_mode: Literal["local", "accounts"] = "local"
-    local_allowed_hosts: list[str] = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+    local_allowed_hosts: list[str] = ["localhost", "127.0.0.1", "[::1]"]
     allow_signup: bool = True
     signup_code: SecretStr | None = None
     allow_guests: bool = False
