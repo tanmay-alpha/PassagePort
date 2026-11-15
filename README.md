@@ -18,25 +18,28 @@ container starts and loads models.
 
 | | |
 | --- | --- |
-| ![Search with a cited PDF page highlighted, from the production deployment](docs/screenshots/after/11-live-search.png) | ![Comparing two API specification versions, from the production deployment](docs/screenshots/after/12-live-comparison.png) |
-| Search, with the cited PDF page and passage highlighted (production). | Two versions of a specification compared: shared text and the numbers that differ (production). |
-| ![Library with indexing status](docs/screenshots/after/02-library.png) | ![Search Lab showing each retrieval stage](docs/screenshots/after/07-lab.png) |
-| Library with real per-document status. | Search Lab: keyword, semantic, fused and reranked rankings with stage latency. |
-| ![Ask with cited excerpts](docs/screenshots/after/05-ask.png) | ![Search at phone width: navigation drawer, mode switch and highlighted terms](docs/screenshots/after/09-mobile-search.png) |
-| Ask: verbatim excerpts with citations, no LLM configured. | Search at phone width. |
-
+| ![Search with the cited PDF page highlighted in the preview](docs/screenshots/after/11-live-search.png) | ![Ask: source cards above the answer and a citation popover showing the cited excerpt](docs/screenshots/after/14-citation-popover.png) |
+| Search with the cited PDF page and passage highlighted (production deployment). | Ask: numbered source cards, inline citations that preview the excerpt on hover or keyboard focus. |
+| ![Compare: word-level changes between two API spec versions and the numbers that differ](docs/screenshots/after/15-compare-diff.png) | ![Search Lab: rank movement of each passage across the retrieval stages](docs/screenshots/after/16-lab-rank-chart.png) |
+| Compare: word-level changes computed from the text, and the numbers that differ. | Search Lab: how each passage's rank moves between retrieval stages, with stage latency. |
+| ![Original PDF page rendered with the cited passage highlighted](docs/screenshots/after/04-viewer.png) | ![Command palette listing screens, workspaces, documents and actions](docs/screenshots/after/13-command-palette.png) |
+| Document viewer: the original PDF page with the cited passage highlighted. | Ctrl/⌘ + K command palette. |
+| ![Library with sample documents and suggested first queries](docs/screenshots/after/02-library.png) | ![Search at phone width](docs/screenshots/after/09-mobile-search.png) |
+| Library with real per-document status and suggested queries. | Search at phone width. |
 
 ## Use it
 
-1. Create a workspace for a course, project or research topic.
-2. Upload PDF, Markdown, plain-text or DOCX files. Processing status and failures are shown per file.
-3. Search by meaning, exact words, or both. Open a result to see its source page and highlighted text.
+1. Create a workspace — or click **Load sample documents** on the welcome screen to get a ready
+   workspace with original sample files (OS notes, networking notes, two versions of an API spec)
+   and suggested first queries.
+2. Upload PDF, Markdown, plain-text or DOCX files (or drop them anywhere in the workspace).
+   Processing status and failures are shown per file.
+3. Search by meaning, exact words, or both. Open a result to see its source page and highlighted
+   text; copy a citation in one click.
 4. Ask a question for cited excerpts, or compare two to four documents side by side.
-5. Open **Search Lab** to inspect the retrieval stages and their real latency.
+5. Open **Search Lab** to see how each retrieval stage ranks the same passages, and how long it took.
 
-Try the original sample documents in [`samples/`](samples/): operating-system notes, networking
-notes, and two versions of an API specification. Search “deadlock prevention” or compare the
-specifications’ rate limits.
+Press **Ctrl/⌘ + K** anywhere to jump to a workspace, document or screen, or to run a query.
 
 ## What it does
 
@@ -46,8 +49,8 @@ specifications’ rate limits.
 | Hybrid retrieval | BM25 lexical search + normalized vector similarity, weighted reciprocal-rank fusion, optional cross-encoder reranking, document filters. |
 | Source citations | PDF page or text section, exact passage offsets, stable chunk identifiers, original-file download. No invented page numbers. |
 | Evidence-backed answers | Without an LLM: verbatim excerpts with citations. With an optional provider: generated answers with citation checks and explicit uncertainty. Retrieved evidence remains visible. |
-| Comparison | Independent evidence retrieval per document, passage alignment, shared/unique sentences and numerical changes computed from text. Optional model interpretation is separate. |
-| Search Lab | Keyword, vector, fused and reranked lists, measured stage latency, effective configuration and reproducible evaluation results. |
+| Comparison | Independent evidence retrieval per document, passage alignment, word-level changes, shared/unique sentences and numerical changes computed from text. Optional model interpretation is separate. |
+| Search Lab | Keyword, vector, fused and reranked lists, a rank-movement chart across stages, measured stage latency, effective configuration and reproducible evaluation results. |
 | Access control | Loopback-only local mode, or isolated accounts with Argon2id passwords, server-side sessions and revocable MCP API tokens. |
 
 PDF originals use pdf.js. If the original-page text cannot be matched unambiguously, the viewer
