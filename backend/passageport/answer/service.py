@@ -36,10 +36,14 @@ CHECK_CITATIONS_RESOLVE = "Every citation points to a retrieved passage"
 CHECK_UNCITED_FLAGGED = "Sentences without a valid citation are flagged as unsupported"
 CHECK_NOT_FACT_CHECKED = "Generated wording was not independently fact-checked"
 CHECK_VERBATIM = "Every sentence is quoted verbatim from the passage it cites"
-CHECK_SELECTION_ONLY = "Sentences were selected by similarity to the question; whether they fully answer it was not checked"
+CHECK_SELECTION_ONLY = (
+    "Sentences were selected by similarity to the question; whether they fully answer it was not checked"
+)
 CHECK_THRESHOLDS = "Retrieved passages were compared against the relevance thresholds and none passed"
 CHECK_NO_ANSWER = "No answer was generated"
-CHECK_MODEL_DECLINED = "The language model judged the retrieved passages insufficient; its judgement was not checked"
+CHECK_MODEL_DECLINED = (
+    "The language model judged the retrieved passages insufficient; its judgement was not checked"
+)
 
 NOTICE_EXTRACTIVE = (
     "No language model is configured. These are excerpts quoted from your documents, not a generated answer."
@@ -87,7 +91,11 @@ def run_ask(conn: Connection, user: User, body: AskIn, settings: Settings) -> As
     timings = {"retrieve": retrieval.timings["total"], "answer": 0.0, "total": 0.0}
 
     def reply(
-        mode: str, segments: list[AnswerSegment], notice: str | None, checks: list[str], llm_model: str | None = None
+        mode: str,
+        segments: list[AnswerSegment],
+        notice: str | None,
+        checks: list[str],
+        llm_model: str | None = None,
     ) -> AskOut:
         timings["total"] = _ms(started)
         if evidence and retrieval.partial_notice:
@@ -124,7 +132,11 @@ def run_ask(conn: Connection, user: User, body: AskIn, settings: Settings) -> As
             timings["answer"] = _ms(answer_started)
             if segments is None:
                 return reply(
-                    "insufficient", [], NOTICE_MODEL_DECLINED, [CHECK_MODEL_DECLINED, CHECK_NO_ANSWER], client.model
+                    "insufficient",
+                    [],
+                    NOTICE_MODEL_DECLINED,
+                    [CHECK_MODEL_DECLINED, CHECK_NO_ANSWER],
+                    client.model,
                 )
             if has_valid_citation(segments):
                 unsupported = any(not s.supported for s in segments)

@@ -428,7 +428,7 @@ def test_oversize_multipart_without_content_length_is_rejected(make_settings, ma
     with TestClient(make_app(settings), headers=CSRF_HEADERS) as client:
         collection = create_collection(client)
         prefix = (
-            b"--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.txt\"\r\n"
+            b'--boundary\r\nContent-Disposition: form-data; name="file"; filename="large.txt"\r\n'
             b"Content-Type: text/plain\r\n\r\n"
         )
 

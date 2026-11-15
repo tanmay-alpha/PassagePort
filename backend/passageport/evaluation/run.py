@@ -26,7 +26,13 @@ from typing import Any
 from passageport.api.schemas import EvalDataset, EvalReport, EvalRun
 from passageport.config import Settings
 from passageport.evaluation import harness
-from passageport.evaluation.datasets import DATASET_NAMES, DEFAULT_CACHE_DIR, DatasetUnavailable, EvalQuery, load_corpus
+from passageport.evaluation.datasets import (
+    DATASET_NAMES,
+    DEFAULT_CACHE_DIR,
+    DatasetUnavailable,
+    EvalQuery,
+    load_corpus,
+)
 from passageport.evaluation.harness import ModelSpec, RunConfig
 from passageport.search.service import FULL_KEYWORD_COVERAGE
 from passageport.search.tokenize import STEMMING_MODES, TOKENIZER_NAME
@@ -46,7 +52,9 @@ def _corpus(args: argparse.Namespace, name: str) -> Any:
 
 
 def _command() -> str:
-    launcher = "uv run python" if Path(sys.prefix).name == ".venv" else f"{Path(sys.prefix).name}/Scripts/python"
+    launcher = (
+        "uv run python" if Path(sys.prefix).name == ".venv" else f"{Path(sys.prefix).name}/Scripts/python"
+    )
     return f"{launcher} -m passageport.evaluation.run {shlex.join(sys.argv[1:])}"
 
 
@@ -74,7 +82,9 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
     _log(f"wrote {path}")
 
 
-def _load_models(args: argparse.Namespace, need_reranker: bool) -> tuple[Any, Any, dict[str, Any], dict[str, Any] | None]:
+def _load_models(
+    args: argparse.Namespace, need_reranker: bool
+) -> tuple[Any, Any, dict[str, Any], dict[str, Any] | None]:
     spec = ModelSpec.parse(args.embedding)
     started = time.perf_counter()
     embedder = harness.make_embedder(spec, args.model_cache)
@@ -137,7 +147,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     embedder, reranker, embedding_info, reranker_info = _load_models(args, any(c.rerank for c in configs))
     if reranker is None:
         configs = [c for c in configs if not c.rerank]
-    payload = _header() | {"label": args.label, "embedding": embedding_info, "reranker": reranker_info, "datasets": []}
+    payload = _header() | {
+        "label": args.label,
+        "embedding": embedding_info,
+        "reranker": reranker_info,
+        "datasets": [],
+    }
     for name in args.datasets:
         corpus = _corpus(args, name)
         if corpus is None:
@@ -145,9 +160,15 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             continue
         _log(f"{name}: indexing {len(corpus.documents)} documents")
         index = harness.build_eval_index(
-            corpus, embedder, args.cache_dir / "index", chunk_max_tokens=args.chunk_tokens, rebuild=args.rebuild
+            corpus,
+            embedder,
+            args.cache_dir / "index",
+            chunk_max_tokens=args.chunk_tokens,
+            rebuild=args.rebuild,
         )
-        _log(f"{name}: {index.chunk_count} chunks, {index.indexing_chunks_per_second} chunks/s (reused={index.reused})")
+        _log(
+            f"{name}: {index.chunk_count} chunks, {index.indexing_chunks_per_second} chunks/s (reused={index.reused})"
+        )
         entry: dict[str, Any] = {
             "name": corpus.name,
             "description": corpus.description,
@@ -215,26 +236,52 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             params = harness.params_for(index, config, **overrides)
             outcomes = harness.run_queries(index, queries, params, embedder, reranker, query_vectors=vectors)  # noqa: B023
             summary = harness.summarize(index, outcomes, by_kind=False)
-            rows.append({"dataset": name, "parameter": parameter, "value": value, "run": run,  # noqa: B023
-                         "chunks": index.chunk_count, **_compact(summary)})
+            rows.append(
+                {
+                    "dataset": name,  # noqa: B023
+                    "parameter": parameter,
+                    "value": value,
+                    "run": run,
+                    "chunks": index.chunk_count,
+                    **_compact(summary),
+                }
+            )
             _log(f"{name} {parameter}={value} {run}: nDCG@10={summary['ndcg_at_10']}")  # noqa: B023
 
         for size in args.chunk_sizes:
-            index = harness.build_eval_index(corpus, embedder, args.cache_dir / "index", chunk_max_tokens=size)
+            index = harness.build_eval_index(
+                corpus, embedder, args.cache_dir / "index", chunk_max_tokens=size
+            )
             for run in DEFAULT_RUNS:
                 measure(index, run, "chunk_max_tokens", size)
 
         index = harness.build_eval_index(corpus, embedder, args.cache_dir / "index")
         for rrf_k in (1, 10, 20, 40, 60, 100):
             measure(index, "hybrid", "rrf_k", rrf_k, rrf_k=rrf_k)
-        for lexical, vector in ((1.0, 1.0), (0.5, 1.0), (0.7, 1.0), (1.0, 0.7), (1.0, 0.5), (1.0, 2.0), (2.0, 1.0)):
-            measure(index, "hybrid", "lexical_weight:vector_weight", f"{lexical}:{vector}",
-                    lexical_weight=lexical, vector_weight=vector)
+        for lexical, vector in (
+            (1.0, 1.0),
+            (0.5, 1.0),
+            (0.7, 1.0),
+            (1.0, 0.7),
+            (1.0, 0.5),
+            (1.0, 2.0),
+            (2.0, 1.0),
+        ):
+            measure(
+                index,
+                "hybrid",
+                "lexical_weight:vector_weight",
+                f"{lexical}:{vector}",
+                lexical_weight=lexical,
+                vector_weight=vector,
+            )
         for candidates in (20, 30, 50, 100):
             measure(index, "hybrid", "candidates", candidates, candidates=candidates)
             measure(index, "hybrid+rerank", "candidates", candidates, candidates=candidates)
         for depth in (5, 10, 20, 30, 50):
-            measure(index, "hybrid+rerank", "rerank_candidates", depth, rerank_candidates=depth, candidates=50)
+            measure(
+                index, "hybrid+rerank", "rerank_candidates", depth, rerank_candidates=depth, candidates=50
+            )
         for k1, b in ((0.9, 0.4), (1.2, 0.5), (1.2, 0.75), (1.5, 0.75), (2.0, 0.75), (1.2, 1.0)):
             measure(index, "keyword", "bm25_k1:b", f"{k1}:{b}", bm25_k1=k1, bm25_b=b)
         for mode in STEMMING_MODES:
@@ -276,33 +323,47 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     # "Source removed": the same questions with their answer document filtered out. The remaining
     # documents are on neighbouring topics, which makes these the hardest unanswerable queries.
     # The two API versions answer each other's questions, so those queries are left out.
-    removable = [q for q in mini_answerable if not any(d.startswith("api-orders") for d in q.relevant_documents)]
+    removable = [
+        q for q in mini_answerable if not any(d.startswith("api-orders") for d in q.relevant_documents)
+    ]
     without_source = {
-        q.query_id: [mini_index.document_ids[d.doc_id] for d in mini.documents if d.doc_id not in q.relevant_documents]
+        q.query_id: [
+            mini_index.document_ids[d.doc_id] for d in mini.documents if d.doc_id not in q.relevant_documents
+        ]
         for q in removable
     }
     plan: list[tuple[str, bool, harness.EvalIndex, list[EvalQuery], dict[str, list[str]] | None]] = [
         ("mini: answerable", True, mini_index, mini_answerable, None),
-        ("mini: out-of-scope queries", False, mini_index, [q for q in mini.queries if not q.answerable], None),
+        (
+            "mini: out-of-scope queries",
+            False,
+            mini_index,
+            [q for q in mini.queries if not q.answerable],
+            None,
+        ),
         ("mini: source document removed", False, mini_index, removable, without_source),
     ]
     if scifact is not None and scifact_index is not None:
-        plan.extend([
-            ("scifact: answerable", True, scifact_index, list(scifact.queries), None),
-            ("mini corpus, scifact queries", False, mini_index, list(scifact.queries), None),
-            ("scifact corpus, mini queries", False, scifact_index, list(mini.queries), None),
-        ])
+        plan.extend(
+            [
+                ("scifact: answerable", True, scifact_index, list(scifact.queries), None),
+                ("mini corpus, scifact queries", False, mini_index, list(scifact.queries), None),
+                ("scifact corpus, mini queries", False, scifact_index, list(mini.queries), None),
+            ]
+        )
     answerable_groups = {group for group, answerable, *_ in plan if answerable}
 
     records: dict[str, list[dict[str, Any]]] = {"hybrid": [], "hybrid+rerank": []}
     for group, answerable, index, queries, document_filter in plan:
-        for run in records:
+        for run, run_records in records.items():
             config = RunConfig.named(run)
             if config.rerank and reranker is None:
                 continue
             params = harness.params_for(index, config, top_k=index.settings.search_top_k)
-            outcomes = harness.run_queries(index, queries, params, embedder, reranker, document_filter=document_filter)
-            records[run].extend(
+            outcomes = harness.run_queries(
+                index, queries, params, embedder, reranker, document_filter=document_filter
+            )
+            run_records.extend(
                 {"group": group, "answerable": answerable, **harness.confidence_record(o)} for o in outcomes
             )
             _log(f"calibrate {group} / {run}: {len(outcomes)} queries")
@@ -310,6 +371,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     def table(run: str, thresholds: list[float], signal: str, with_coverage: bool) -> list[dict[str, Any]]:
         out = []
         for threshold in thresholds:
+
             def rule(record: dict[str, Any], threshold: float = threshold) -> bool:
                 value = record[signal]
                 covered = with_coverage and record["keyword_coverage"] >= FULL_KEYWORD_COVERAGE
@@ -317,23 +379,29 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
 
             rates = _rates(records[run], rule)
             mini_rates = {group: rate for group, rate in rates.items() if group.startswith("mini:")}
-            out.append({
-                "threshold": threshold,
-                "confident_share": rates,
-                "balanced_accuracy": _balanced(rates, answerable_groups),
-                "mini_balanced_accuracy": _balanced(mini_rates, {"mini: answerable"}),
-            })
+            out.append(
+                {
+                    "threshold": threshold,
+                    "confident_share": rates,
+                    "balanced_accuracy": _balanced(rates, answerable_groups),
+                    "mini_balanced_accuracy": _balanced(mini_rates, {"mini: answerable"}),
+                }
+            )
         return out
 
     similarity_grid = [round(0.40 + 0.02 * i, 2) for i in range(21)]
     rerank_grid = [round(-8 + 0.5 * i, 1) for i in range(29)]
     tables = {
         "no_rerank: similarity >= t": table("hybrid", similarity_grid, "best_similarity", False),
-        "no_rerank: similarity >= t OR full keyword coverage": table("hybrid", similarity_grid, "best_similarity", True),
+        "no_rerank: similarity >= t OR full keyword coverage": table(
+            "hybrid", similarity_grid, "best_similarity", True
+        ),
     }
     if records["hybrid+rerank"]:
         tables["rerank: score >= t"] = table("hybrid+rerank", rerank_grid, "best_rerank", False)
-        tables["rerank: score >= t OR full keyword coverage"] = table("hybrid+rerank", rerank_grid, "best_rerank", True)
+        tables["rerank: score >= t OR full keyword coverage"] = table(
+            "hybrid+rerank", rerank_grid, "best_rerank", True
+        )
     payload = _header() | {
         "embedding": embedding_info,
         "reranker": reranker_info,
@@ -346,8 +414,10 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     }
     _write(args.out, payload)
     for name, row in payload["best"].items():
-        _log(f"{name}: best t={row['threshold']} mini_balanced={row['mini_balanced_accuracy']} "
-             f"{row['confident_share']}")
+        _log(
+            f"{name}: best t={row['threshold']} mini_balanced={row['mini_balanced_accuracy']} "
+            f"{row['confident_share']}"
+        )
     return 0
 
 
@@ -413,14 +483,22 @@ def cmd_baseline(args: argparse.Namespace) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m passageport.evaluation.run", description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m passageport.evaluation.run", description=__doc__.split("\n")[0]
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     def common(sub: argparse.ArgumentParser) -> None:
-        sub.add_argument("--embedding", default=DEFAULT_EMBEDDING, help="backend:model (default: %(default)s)")
+        sub.add_argument(
+            "--embedding", default=DEFAULT_EMBEDDING, help="backend:model (default: %(default)s)"
+        )
         sub.add_argument("--reranker", default=DEFAULT_RERANKER, help="backend:model or 'none'")
-        sub.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR,
-                         help="downloads and scratch indexes (default: <repo>/eval/.cache)")
+        sub.add_argument(
+            "--cache-dir",
+            type=Path,
+            default=DEFAULT_CACHE_DIR,
+            help="downloads and scratch indexes (default: <repo>/eval/.cache)",
+        )
         sub.add_argument("--model-cache", type=Path, default=None, help="model download directory")
         sub.add_argument("--max-queries", type=int, default=None, help="use only the first N SciFact queries")
         sub.add_argument("--out", type=Path, required=True)
@@ -449,7 +527,9 @@ def _parser() -> argparse.ArgumentParser:
     common(calibrate)
     baseline = commands.add_parser("baseline", help="run the original upstream checkout's actual pipeline")
     common(baseline)
-    baseline.add_argument("--upstream-root", type=Path, required=True, help="original upstream backend directory")
+    baseline.add_argument(
+        "--upstream-root", type=Path, required=True, help="original upstream backend directory"
+    )
     baseline.add_argument("--datasets", nargs="+", choices=DATASET_NAMES, default=["mini"])
     baseline.set_defaults(handler=cmd_baseline)
 

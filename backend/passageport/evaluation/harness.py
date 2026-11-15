@@ -54,8 +54,12 @@ class ModelSpec:
     @classmethod
     def parse(cls, text: str) -> ModelSpec:
         backend, _, model = text.partition(":")
-        if backend not in ("fastembed", "sentence-transformers", "hashing") or (backend != "hashing" and not model):
-            raise ValueError(f"model must look like 'fastembed:<name>' or 'sentence-transformers:<name>', got {text!r}")
+        if backend not in ("fastembed", "sentence-transformers", "hashing") or (
+            backend != "hashing" and not model
+        ):
+            raise ValueError(
+                f"model must look like 'fastembed:<name>' or 'sentence-transformers:<name>', got {text!r}"
+            )
         return cls(backend, model)
 
     def __str__(self) -> str:
@@ -98,7 +102,7 @@ def model_size_bytes(model: Any) -> int | None:
             from huggingface_hub import snapshot_download
 
             directory = snapshot_download(model.model, local_files_only=True, cache_dir=model._cache_dir)
-        except Exception:  # noqa: BLE001 - size is informational
+        except Exception:
             return None
     return directory_size(Path(directory)) if directory else None
 
@@ -148,7 +152,9 @@ def _psutil() -> Any:
     try:
         import psutil
     except ImportError:
-        raise SystemExit("The evaluation harness needs psutil: install the dev extras (uv sync --extra dev).") from None
+        raise SystemExit(
+            "The evaluation harness needs psutil: install the dev extras (uv sync --extra dev)."
+        ) from None
     return psutil
 
 
@@ -180,7 +186,11 @@ def git_commit() -> str | None:
     try:
         out = subprocess.run(  # noqa: S603 - fixed arguments
             [git, "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=10, check=True, cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+            cwd=Path(__file__).parent,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -201,8 +211,15 @@ def package_versions() -> dict[str, str]:
 
     found = {}
     for name in (
-        "fastembed", "onnxruntime", "numpy", "semchunk", "sentence-transformers", "torch", "transformers",
-        "lancedb", "pyarrow",
+        "fastembed",
+        "onnxruntime",
+        "numpy",
+        "semchunk",
+        "sentence-transformers",
+        "torch",
+        "transformers",
+        "lancedb",
+        "pyarrow",
     ):
         try:
             found[name] = version(name)
@@ -302,7 +319,7 @@ def _database_id(corpus: str, doc_id: str) -> str:
     return hashlib.sha256(f"{corpus}:{doc_id}".encode()).hexdigest()[:32]
 
 
-def build_eval_index(
+def build_eval_index(  # noqa: PLR0915 - one linear indexing pipeline
     corpus: EvalCorpus,
     embedder: Embedder,
     workdir: Path,
@@ -340,9 +357,21 @@ def build_eval_index(
                 for r in conn.execute(select(chunks.c.id, chunks.c.document_id))
             }
         return EvalIndex(
-            corpus, engine, settings, user, collection_id, embedder.version, version,
-            meta["documents"], meta["pages"], meta["chunks"], meta["chunk_seconds"], meta["embed_seconds"],
-            True, cached_mapping, document_ids,
+            corpus,
+            engine,
+            settings,
+            user,
+            collection_id,
+            embedder.version,
+            version,
+            meta["documents"],
+            meta["pages"],
+            meta["chunks"],
+            meta["chunk_seconds"],
+            meta["embed_seconds"],
+            True,
+            cached_mapping,
+            document_ids,
         )
 
     if directory.exists():
@@ -369,11 +398,22 @@ def build_eval_index(
     mapping: dict[str, str] = {}
     page_total = 0
     with engine.begin() as conn:
-        conn.execute(insert(users), [{"id": user.id, "username": user.username, "is_guest": False, "created_at": now}])
+        conn.execute(
+            insert(users), [{"id": user.id, "username": user.username, "is_guest": False, "created_at": now}]
+        )
         conn.execute(
             insert(collections),
-            [{"id": collection_id, "owner_id": user.id, "name": corpus.name, "description": "",
-              "index_version": 1, "created_at": now, "updated_at": now}],
+            [
+                {
+                    "id": collection_id,
+                    "owner_id": user.id,
+                    "name": corpus.name,
+                    "description": "",
+                    "index_version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            ],
         )
         cursor = 0
         chunk_rows: list[dict[str, Any]] = []
@@ -382,43 +422,81 @@ def build_eval_index(
             page_total += len(document_pages)
             conn.execute(
                 insert(documents),
-                [{
-                    "id": database_id, "collection_id": collection_id, "owner_id": user.id,
-                    "title": document.title[:255], "filename": f"{_slug(document.doc_id)[:200]}.{document.kind}",
-                    "kind": document.kind, "size_bytes": len(document.data),
-                    "sha256": hashlib.sha256(document.data + document.doc_id.encode()).hexdigest(),
-                    "blob_key": database_id, "status": "indexed", "page_count": len(document_pages),
-                    "chunk_count": len(drafts), "token_count": sum(d.token_count for d in drafts),
-                    "embedding_version": embedder.version, "chunker_version": version,
-                    "created_at": now, "updated_at": now, "indexed_at": now,
-                }],
+                [
+                    {
+                        "id": database_id,
+                        "collection_id": collection_id,
+                        "owner_id": user.id,
+                        "title": document.title[:255],
+                        "filename": f"{_slug(document.doc_id)[:200]}.{document.kind}",
+                        "kind": document.kind,
+                        "size_bytes": len(document.data),
+                        "sha256": hashlib.sha256(document.data + document.doc_id.encode()).hexdigest(),
+                        "blob_key": database_id,
+                        "status": "indexed",
+                        "page_count": len(document_pages),
+                        "chunk_count": len(drafts),
+                        "token_count": sum(d.token_count for d in drafts),
+                        "embedding_version": embedder.version,
+                        "chunker_version": version,
+                        "created_at": now,
+                        "updated_at": now,
+                        "indexed_at": now,
+                    }
+                ],
             )
             conn.execute(
                 insert(pages),
-                [{"document_id": database_id, "page_number": p.number, "label": p.label, "text": p.text}
-                 for p in document_pages],
+                [
+                    {"document_id": database_id, "page_number": p.number, "label": p.label, "text": p.text}
+                    for p in document_pages
+                ],
             )
             for draft in drafts:
                 identifier = chunk_id(database_id, draft, version)
                 mapping[identifier] = document.doc_id
-                chunk_rows.append({
-                    "id": identifier, "document_id": database_id, "collection_id": collection_id,
-                    "ordinal": draft.ordinal, "page_number": draft.page_number, "char_start": draft.char_start,
-                    "char_end": draft.char_end, "text": draft.text, "token_count": draft.token_count,
-                    "embedding": to_blob(vectors[cursor]), "embedding_version": embedder.version,
-                })
+                chunk_rows.append(
+                    {
+                        "id": identifier,
+                        "document_id": database_id,
+                        "collection_id": collection_id,
+                        "ordinal": draft.ordinal,
+                        "page_number": draft.page_number,
+                        "char_start": draft.char_start,
+                        "char_end": draft.char_end,
+                        "text": draft.text,
+                        "token_count": draft.token_count,
+                        "embedding": to_blob(vectors[cursor]),
+                        "embedding_version": embedder.version,
+                    }
+                )
                 cursor += 1
         for i in range(0, len(chunk_rows), 500):
             conn.execute(insert(chunks), chunk_rows[i : i + 500])
     meta = {
-        "documents": len(corpus.documents), "pages": page_total, "chunks": len(mapping),
-        "chunk_seconds": round(chunk_seconds, 3), "embed_seconds": round(embed_seconds, 3),
+        "documents": len(corpus.documents),
+        "pages": page_total,
+        "chunks": len(mapping),
+        "chunk_seconds": round(chunk_seconds, 3),
+        "embed_seconds": round(embed_seconds, 3),
     }
     meta_path.write_text(json.dumps(meta), encoding="utf-8")
     return EvalIndex(
-        corpus, engine, settings, user, collection_id, embedder.version, version,
-        meta["documents"], meta["pages"], meta["chunks"], meta["chunk_seconds"], meta["embed_seconds"],
-        False, mapping, document_ids,
+        corpus,
+        engine,
+        settings,
+        user,
+        collection_id,
+        embedder.version,
+        version,
+        meta["documents"],
+        meta["pages"],
+        meta["chunks"],
+        meta["chunk_seconds"],
+        meta["embed_seconds"],
+        False,
+        mapping,
+        document_ids,
     )
 
 
@@ -514,7 +592,9 @@ def summarize(index: EvalIndex, outcomes: Sequence[Outcome], *, by_kind: bool = 
     summary["latency_ms_p95"] = round(metrics.percentile(latencies, 95), 2)
     kinds = sorted({o.query.kind for o, _ in scored})
     if by_kind and len(kinds) > 1:
-        summary["by_kind"] = {k: _ranking_metrics([(o, r) for o, r in scored if o.query.kind == k]) for k in kinds}
+        summary["by_kind"] = {
+            k: _ranking_metrics([(o, r) for o, r in scored if o.query.kind == k]) for k in kinds
+        }
     unanswerable = [o for o in outcomes if not o.query.answerable]
     summary["low_confidence"] = {
         "answerable_flagged": sum(1 for o, _ in scored if not o.confidence.confident),

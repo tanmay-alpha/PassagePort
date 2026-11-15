@@ -80,7 +80,9 @@ def load_mini(directory: Path | None = None) -> EvalCorpus:
         if unknown:
             raise ValueError(f"query {record['id']} refers to unknown documents: {sorted(unknown)}")
         queries.append(
-            EvalQuery(record["id"], record["query"], record["type"], frozenset(q.document for q in quotes), quotes)
+            EvalQuery(
+                record["id"], record["query"], record["type"], frozenset(q.document for q in quotes), quotes
+            )
         )
     return EvalCorpus(
         name="mini",
@@ -103,7 +105,7 @@ def _download_scifact(cache_dir: Path) -> Path:
     archive = target.parent / "scifact.zip"
     if not archive.exists():
         try:
-            with urllib.request.urlopen(SCIFACT_URL, timeout=120) as response:  # noqa: S310 - fixed https URL
+            with urllib.request.urlopen(SCIFACT_URL, timeout=120) as response:
                 data = response.read()
         except OSError as exc:
             message = f"SciFact download unavailable ({type(exc).__name__}); skipping {SCIFACT_URL}"
@@ -114,7 +116,7 @@ def _download_scifact(cache_dir: Path) -> Path:
         for member in bundle.namelist():
             if not (root / member).resolve().is_relative_to(root):
                 raise ValueError("unexpected path in the SciFact archive")
-        bundle.extractall(root)  # noqa: S202 - member paths validated above
+        bundle.extractall(root)
     return target
 
 
@@ -125,7 +127,9 @@ def load_scifact(cache_dir: Path | None = None, max_queries: int | None = None) 
         for line in handle:
             record = json.loads(line)
             body = f"{record['title']}\n\n{record['text']}".encode()
-            documents.append(EvalDocument(str(record["_id"]), record["title"][:250] or str(record["_id"]), "txt", body))
+            documents.append(
+                EvalDocument(str(record["_id"]), record["title"][:250] or str(record["_id"]), "txt", body)
+            )
     relevant: dict[str, set[str]] = {}
     with (directory / "qrels" / "test.tsv").open(encoding="utf-8") as handle:
         for row in csv.DictReader(handle, delimiter="\t"):
@@ -137,7 +141,9 @@ def load_scifact(cache_dir: Path | None = None, max_queries: int | None = None) 
             record = json.loads(line)
             if str(record["_id"]) in relevant:
                 queries.append(
-                    EvalQuery(str(record["_id"]), record["text"], "claim", frozenset(relevant[str(record["_id"])]))
+                    EvalQuery(
+                        str(record["_id"]), record["text"], "claim", frozenset(relevant[str(record["_id"])])
+                    )
                 )
     queries.sort(key=lambda q: int(q.query_id))
     if max_queries is not None:
@@ -154,8 +160,9 @@ def load_scifact(cache_dir: Path | None = None, max_queries: int | None = None) 
     )
 
 
-def load_corpus(name: str, *, cache_dir: Path | None = None, mini_dir: Path | None = None,
-                max_queries: int | None = None) -> EvalCorpus:
+def load_corpus(
+    name: str, *, cache_dir: Path | None = None, mini_dir: Path | None = None, max_queries: int | None = None
+) -> EvalCorpus:
     if name == "mini":
         return load_mini(mini_dir)
     if name == "scifact":

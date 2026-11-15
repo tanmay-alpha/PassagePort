@@ -347,9 +347,11 @@ def test_concurrent_login_burst_is_throttled_before_any_hashing(accounts, monkey
     monkeypatch.setattr(service, "verify_password", slow_verify)
 
     def guess(index: int) -> int:
-        return accounts.client().post(
-            "/api/auth/login", json=_credentials("alice", f"wrong password {index}")
-        ).status_code
+        return (
+            accounts.client()
+            .post("/api/auth/login", json=_credentials("alice", f"wrong password {index}"))
+            .status_code
+        )
 
     statuses = burst(30, guess)
 

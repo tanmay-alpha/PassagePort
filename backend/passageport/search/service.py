@@ -26,11 +26,20 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
 from sqlalchemy import Connection, func, select
 
-from passageport.api.schemas import EffectiveSettings, Evidence, Hit, HitScores, SearchIn, SearchOut, StageScore
+from passageport.api.schemas import (
+    EffectiveSettings,
+    Evidence,
+    Hit,
+    HitScores,
+    SearchIn,
+    SearchOut,
+    StageScore,
+)
 from passageport.config import Settings
 from passageport.db.access import require_collection, require_documents
 from passageport.db.schema import documents
@@ -45,7 +54,9 @@ from passageport.search.tokenize import matched_surfaces, query_terms
 
 NOTICE_NO_DOCUMENTS = "This collection has no documents yet. Upload a document to search it."
 NOTICE_INDEXING = "The documents in this collection are still being indexed. Try again in a moment."
-NOTICE_NOTHING_INDEXED = "No document in this collection has been indexed successfully, so there is nothing to search."
+NOTICE_NOTHING_INDEXED = (
+    "No document in this collection has been indexed successfully, so there is nothing to search."
+)
 NOTICE_ALL_STALE = (
     "The documents in this collection were indexed with a different embedding model. "
     "Re-index them to make them searchable."
@@ -55,9 +66,7 @@ NOTICE_SELECTION_EMPTY = (
     "or need to be re-indexed."
 )
 NOTICE_NO_MATCH = "No passage matches this query."
-NOTICE_LOW_CONFIDENCE = (
-    "No passage clearly matches this query. The results shown are the closest text found and may not be relevant."
-)
+NOTICE_LOW_CONFIDENCE = "No passage clearly matches this query. The results shown are the closest text found and may not be relevant."
 NOTICE_INVALID_RERANK = "The reranker returned invalid scores; the original retrieval order is shown."
 
 FULL_KEYWORD_COVERAGE = 0.999
@@ -84,7 +93,7 @@ class RetrievalParams:
     min_rerank_score: float
 
     @classmethod
-    def from_settings(cls, settings: Settings, **overrides: object) -> RetrievalParams:
+    def from_settings(cls, settings: Settings, **overrides: Any) -> RetrievalParams:
         """Server defaults with per-request overrides; ``None`` means "use the default"."""
         params = cls(
             mode="hybrid",
@@ -193,7 +202,9 @@ class Retrieval:
         )
 
 
-def _hit_fields(retrieval: Retrieval, candidate: Candidate, rank: int, terms: frozenset[str]) -> dict[str, object]:
+def _hit_fields(
+    retrieval: Retrieval, candidate: Candidate, rank: int, terms: frozenset[str]
+) -> dict[str, Any]:
     chunk = retrieval.chunk(candidate)
     return {
         "chunk_id": chunk.chunk_id,
@@ -208,7 +219,10 @@ def _hit_fields(retrieval: Retrieval, candidate: Candidate, rank: int, terms: fr
         "text": chunk.text,
         "rank": rank,
         "scores": HitScores(
-            keyword=candidate.keyword, semantic=candidate.semantic, fused=candidate.fused, rerank=candidate.rerank
+            keyword=candidate.keyword,
+            semantic=candidate.semantic,
+            fused=candidate.fused,
+            rerank=candidate.rerank,
         ),
         "matched_terms": matched_surfaces(chunk.text, terms) if terms else [],
     }
@@ -226,7 +240,12 @@ def clean_query(query: str, settings: Settings) -> str:
 
 
 def is_relevant(
-    params: RetrievalParams, *, similarity: float | None, rerank: float | None, coverage: float, reranked: bool
+    params: RetrievalParams,
+    *,
+    similarity: float | None,
+    rerank: float | None,
+    coverage: float,
+    reranked: bool,
 ) -> bool:
     """The relevance rules from the module docstring, applied to one passage.
 
@@ -274,7 +293,7 @@ def _ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000.0, 3)
 
 
-def retrieve(
+def retrieve(  # noqa: PLR0912, PLR0915 - one linear retrieval pipeline
     conn: Connection,
     user: User,
     *,
@@ -298,7 +317,9 @@ def retrieve(
     if document_ids:
         selected = require_documents(conn, user, document_ids)
         if any(row.collection_id != collection_id for row in selected):
-            raise ApiError(422, "invalid_request", "Every selected document must belong to the searched collection.")
+            raise ApiError(
+                422, "invalid_request", "Every selected document must belong to the searched collection."
+            )
     else:
         document_ids = None
 
@@ -356,7 +377,9 @@ def retrieve(
         timings["embed"] = _ms(started)
         started = time.perf_counter()
         similarities = index.similarities(query_vector)
-        for rank, (row, score) in enumerate(index.semantic(similarities, limit=params.candidates, mask=mask), 1):
+        for rank, (row, score) in enumerate(
+            index.semantic(similarities, limit=params.candidates, mask=mask), 1
+        ):
             entry = candidate(row)
             entry.semantic = StageScore(rank=rank, score=score)
             result.semantic.append(entry)

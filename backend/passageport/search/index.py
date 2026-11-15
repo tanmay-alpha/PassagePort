@@ -64,13 +64,15 @@ class CollectionIndex:
         self.bm25 = BM25Index([tokenize(c.text) for c in self.chunks])
         # Rank of every row in chunk-id order: the deterministic tie-breaker of every ranking.
         self.tiebreak = np.empty(count, dtype=np.int64)
-        self.tiebreak[np.argsort(np.array([c.chunk_id for c in self.chunks], dtype=object), kind="stable")] = (
-            np.arange(count)
-        )
+        self.tiebreak[
+            np.argsort(np.array([c.chunk_id for c in self.chunks], dtype=object), kind="stable")
+        ] = np.arange(count)
         rows_by_document: dict[str, list[int]] = {}
         for row, chunk in enumerate(self.chunks):
             rows_by_document.setdefault(chunk.document_id, []).append(row)
-        self._rows_by_document = {doc: np.asarray(rows, dtype=np.int64) for doc, rows in rows_by_document.items()}
+        self._rows_by_document = {
+            doc: np.asarray(rows, dtype=np.int64) for doc, rows in rows_by_document.items()
+        }
         self.stats = IndexStats(
             chunks=count,
             documents=len(rows_by_document),
@@ -133,7 +135,9 @@ def build_index(conn: Connection, collection_id: str, embedding_version: str) ->
             chunks_table.c.embedding_version != embedding_version,
         )
     ).scalar()
-    return CollectionIndex(collection_id, index_version, embedding_version, rows, stale_documents=int(stale or 0))
+    return CollectionIndex(
+        collection_id, index_version, embedding_version, rows, stale_documents=int(stale or 0)
+    )
 
 
 class IndexCache:
@@ -145,7 +149,9 @@ class IndexCache:
         self._entries: OrderedDict[str, CollectionIndex] = OrderedDict()
         self._build_locks: dict[str, threading.Lock] = {}
 
-    def _current(self, collection_id: str, index_version: int, embedding_version: str) -> CollectionIndex | None:
+    def _current(
+        self, collection_id: str, index_version: int, embedding_version: str
+    ) -> CollectionIndex | None:
         with self._lock:
             entry = self._entries.get(collection_id)
             if (
@@ -157,7 +163,9 @@ class IndexCache:
                 return entry
             return None
 
-    def get(self, conn: Connection, collection_id: str, embedding_version: str) -> tuple[CollectionIndex, bool]:
+    def get(
+        self, conn: Connection, collection_id: str, embedding_version: str
+    ) -> tuple[CollectionIndex, bool]:
         """The index matching the database right now, and whether it came from the cache."""
         index_version = collection_index_version(conn, collection_id)
         entry = self._current(collection_id, index_version, embedding_version)

@@ -133,6 +133,7 @@ def make_settings(
     was built with. Calling the factory again replaces the settings but keeps the data directory
     (and database), which is how the restart tests work.
     """
+
     def factory(**overrides: Any) -> Settings:
         values: dict[str, Any] = {
             "data_dir": tmp_path / "data",

@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from retrieval_helpers import FakeReranker, Workspace, handbook
 
 from passageport.search import service
-from retrieval_helpers import FakeReranker, Workspace, handbook
 
 pytest_plugins = ["retrieval_helpers"]
 
@@ -43,7 +43,9 @@ def test_rerank_can_be_disabled_per_request(workspace: Workspace) -> None:
     collection_id, _, _ = handbook(workspace)
     reranker = _prefers("basil")
     workspace.use_reranker(reranker)
-    body = workspace.ok("/api/search", {"query": "reset link", "collection_id": collection_id, "rerank": False})
+    body = workspace.ok(
+        "/api/search", {"query": "reset link", "collection_id": collection_id, "rerank": False}
+    )
     assert reranker.calls == []
     assert body["settings"]["reranked"] is False
     assert body["settings"]["reranker"] is None
@@ -89,7 +91,9 @@ def test_rerank_score_decides_confidence(make_workspace: Callable[..., Workspace
 def test_keyword_mode_can_be_reranked(workspace: Workspace) -> None:
     collection_id, _, _ = handbook(workspace)
     workspace.use_reranker(_prefers("expires"))
-    body = workspace.ok("/api/search", {"query": "reset link", "collection_id": collection_id, "mode": "keyword"})
+    body = workspace.ok(
+        "/api/search", {"query": "reset link", "collection_id": collection_id, "mode": "keyword"}
+    )
     assert "expires" in body["results"][0]["text"]
     assert body["results"][0]["scores"]["rerank"] == pytest.approx(5.0)
     assert body["settings"]["mode"] == "keyword"
@@ -122,9 +126,7 @@ def test_invalid_reranker_output_preserves_fused_order(workspace: Workspace, inv
 
 
 @pytest.mark.parametrize("count_delta", [-1, 1])
-def test_fastembed_count_mismatch_reaches_controlled_skip(
-    workspace: Workspace, count_delta: int
-) -> None:
+def test_fastembed_count_mismatch_reaches_controlled_skip(workspace: Workspace, count_delta: int) -> None:
     from passageport.ml.fastembed_backend import FastEmbedReranker
 
     class MalformedEngine:

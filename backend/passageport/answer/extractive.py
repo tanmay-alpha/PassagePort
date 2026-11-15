@@ -62,7 +62,9 @@ def _is_duplicate(sentence: str, chosen: Sequence[str]) -> bool:
     )
 
 
-def select_sentences(question: str, passages: Sequence[tuple[int, str]], embedder: Embedder) -> list[AnswerSegment]:
+def select_sentences(
+    question: str, passages: Sequence[tuple[int, str]], embedder: Embedder
+) -> list[AnswerSegment]:
     """Pick 2-4 sentences from ``passages`` (``(ref, text)``, best first), in reading order.
 
     Returns fewer when the passages hold fewer usable sentences, and falls back to the first
@@ -85,9 +87,13 @@ def select_sentences(question: str, passages: Sequence[tuple[int, str]], embedde
     terms = set(query_terms(question))
     rank_of = {ref: rank for rank, (ref, _) in enumerate(passages, start=1)}
     scored: list[_Scored] = []
-    for (ref, position, text), similarity in zip(candidates, np.asarray(similarities, dtype=float), strict=True):
+    for (ref, position, text), similarity in zip(
+        candidates, np.asarray(similarities, dtype=float), strict=True
+    ):
         overlap = len(terms & set(tokenize(text))) / len(terms) if terms else 0.0
-        scored.append(_Scored(ref, position, text, 0.6 * float(similarity) + 0.3 * overlap + 0.1 / rank_of[ref]))
+        scored.append(
+            _Scored(ref, position, text, 0.6 * float(similarity) + 0.3 * overlap + 0.1 / rank_of[ref])
+        )
     scored.sort(key=lambda s: (-s.score, s.ref, s.position))
 
     best = scored[0].score

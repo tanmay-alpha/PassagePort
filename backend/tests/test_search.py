@@ -5,9 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-
-from passageport.search import index as index_module
-from passageport.search import service
 from retrieval_helpers import (
     BOB,
     KITCHEN_SECTIONS,
@@ -17,6 +14,9 @@ from retrieval_helpers import (
     Workspace,
     handbook,
 )
+
+from passageport.search import index as index_module
+from passageport.search import service
 
 pytest_plugins = ["retrieval_helpers"]
 
@@ -201,7 +201,9 @@ def test_nothing_indexed_yet_notice(workspace: Workspace) -> None:
 def test_stale_documents_are_excluded_with_a_notice(workspace: Workspace) -> None:
     collection_id = workspace.collection()
     workspace.document(collection_id, "Current", NETWORK_SECTIONS)
-    stale = workspace.document(collection_id, "Old model", KITCHEN_SECTIONS, embedding_version="other:model:8")
+    stale = workspace.document(
+        collection_id, "Old model", KITCHEN_SECTIONS, embedding_version="other:model:8"
+    )
     body = _search(workspace, collection_id, "ECONNRESET", mode="keyword")
     assert body["low_confidence"] is False
     assert body["notice"] == service.notice_stale(1)
@@ -232,7 +234,9 @@ def test_out_of_scope_query_is_low_confidence(workspace: Workspace) -> None:
 def test_partial_keyword_match_alone_is_not_confident(workspace: Workspace) -> None:
     collection_id, _, _ = handbook(workspace)
     # "minutes" occurs in the corpus, the other terms do not, and nothing is similar overall.
-    body = _search(workspace, collection_id, "minutes of the parliamentary committee on fisheries", mode="keyword")
+    body = _search(
+        workspace, collection_id, "minutes of the parliamentary committee on fisheries", mode="keyword"
+    )
     assert body["results"]
     assert body["low_confidence"] is True
     full = _search(workspace, collection_id, "tomato basil", mode="keyword")
@@ -254,7 +258,9 @@ def test_invalid_requests(workspace: Workspace) -> None:
         response = workspace.post("/api/search", payload)
         assert response.status_code == 422, payload
         assert response.json()["error"]["code"] == "invalid_request"
-    assert "maximum" in workspace.post("/api/search", {"query": too_long, "collection_id": collection_id}).text
+    assert (
+        "maximum" in workspace.post("/api/search", {"query": too_long, "collection_id": collection_id}).text
+    )
 
 
 def test_effective_settings_and_timings(workspace: Workspace) -> None:
@@ -321,4 +327,6 @@ def test_every_matched_term_can_be_highlighted_in_hit_text(
     assert hits
     for hit in hits:
         assert hit["matched_terms"]
-        assert all(term in hit["text"] and term.lower() in hit["text"].lower() for term in hit["matched_terms"])
+        assert all(
+            term in hit["text"] and term.lower() in hit["text"].lower() for term in hit["matched_terms"]
+        )

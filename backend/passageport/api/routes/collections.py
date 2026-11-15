@@ -49,7 +49,7 @@ def _drop_cached_index(collection_id: str) -> None:
     """Let the search layer free the in-memory index of a deleted collection. Only a hint: cached
     indexes are keyed by ``index_version``, so correctness never depends on this call."""
     try:
-        from passageport.search.index import invalidate  # noqa: PLC0415
+        from passageport.search.index import invalidate
     except ImportError:
         return
     with contextlib.suppress(Exception):

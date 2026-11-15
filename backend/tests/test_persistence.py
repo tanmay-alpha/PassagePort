@@ -318,6 +318,7 @@ def test_db_orphan_sweep_does_not_delete_an_upload_in_flight(make_settings, make
             sweep_started.set()
 
     with ThreadPoolExecutor(max_workers=1) as pool:
+
         def sweep_before_document_insert(conn, **values):
             sweep_started.clear()
             sweeps.append(pool.submit(sweep_orphan_blobs, engine, settings))
@@ -368,8 +369,10 @@ def test_deleting_an_owner_waits_for_its_inflight_upload(make_accounts, monkeypa
         assert allow_commit.wait(10)
 
     def observe_lock(_conn, _cursor, statement, _parameters, _context, _many):
-        if deleting.is_set() and "users" in statement and (
-            "FOR UPDATE" in statement or statement.startswith("UPDATE users")
+        if (
+            deleting.is_set()
+            and "users" in statement
+            and ("FOR UPDATE" in statement or statement.startswith("UPDATE users"))
         ):
             owner_lock_requested.set()
 

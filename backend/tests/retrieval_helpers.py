@@ -84,7 +84,9 @@ class ConceptEmbedder:
         return vector / np.linalg.norm(vector)
 
     def embed_documents(self, texts: list[str]) -> np.ndarray:
-        return np.stack([self._embed(t) for t in texts]) if texts else np.zeros((0, self.dimensions), np.float32)
+        return (
+            np.stack([self._embed(t) for t in texts]) if texts else np.zeros((0, self.dimensions), np.float32)
+        )
 
     def embed_query(self, text: str) -> np.ndarray:
         return self._embed(text)
@@ -230,7 +232,12 @@ class Workspace:
         if status == "indexed":
             for number, text in enumerate(sections, start=1):
                 page_rows.append(
-                    {"document_id": document_id, "page_number": number, "label": f"Section {number}", "text": text}
+                    {
+                        "document_id": document_id,
+                        "page_number": number,
+                        "label": f"Section {number}",
+                        "text": text,
+                    }
                 )
                 for match in re.finditer(r"\S(?:.*\S)?", text):  # one chunk per non-empty line
                     chunk_rows.append(

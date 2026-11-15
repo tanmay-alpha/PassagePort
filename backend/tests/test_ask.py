@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from retrieval_helpers import BOB, OUT_OF_SCOPE_QUERY, Workspace, handbook
+
 from passageport.answer import service
 from passageport.answer.extractive import select_sentences
 from passageport.answer.llm import LLMError
@@ -12,7 +14,6 @@ from passageport.answer.prompt import ANSWER_SYSTEM_PROMPT
 from passageport.answer.sentences import split_sentences
 from passageport.ml.hashing import HashingEmbedder
 from passageport.search import service as search_service
-from retrieval_helpers import BOB, OUT_OF_SCOPE_QUERY, Workspace, handbook
 
 pytest_plugins = ["retrieval_helpers"]
 
@@ -57,8 +58,6 @@ def test_sentences_split_on_lines_and_keep_decimals() -> None:
     ]
 
 
-
-
 def test_pdf_soft_wraps_preserve_complete_verbatim_sentences() -> None:
     first = (
         "Deadlock prevention works by making sure at least one of the four Coffman conditions can never\n"
@@ -67,9 +66,11 @@ def test_pdf_soft_wraps_preserve_complete_verbatim_sentences() -> None:
     text = first + " It is a design-time guarantee.\n\nA separate paragraph follows."
     sentences = split_sentences(text)
     assert [sentence.text for sentence in sentences] == [
-        first, "It is a design-time guarantee.", "A separate paragraph follows."
+        first,
+        "It is a design-time guarantee.",
+        "A separate paragraph follows.",
     ]
-    assert all(text[s.start:s.end] == s.text for s in sentences)
+    assert all(text[s.start : s.end] == s.text for s in sentences)
     segments = select_sentences("four Coffman conditions deadlock prevention", [(1, text)], HashingEmbedder())
     assert first in [segment.text for segment in segments]
     assert all(segment.text in text for segment in segments)
@@ -91,7 +92,10 @@ def test_select_sentences_prefers_the_answer_and_keeps_reading_order() -> None:
 def test_select_sentences_skips_headings_and_duplicates() -> None:
     passages = [
         (1, "# Retention period for backups\nThe retention period for backups is 35 days."),
-        (2, "The retention period for backups is 35 days.\nBackups are encrypted before they leave the host."),
+        (
+            2,
+            "The retention period for backups is 35 days.\nBackups are encrypted before they leave the host.",
+        ),
     ]
     texts = [s.text for s in select_sentences("retention period for backups", passages, HashingEmbedder())]
     assert texts.count("The retention period for backups is 35 days.") == 1
@@ -108,7 +112,7 @@ def test_select_sentences_falls_back_to_the_first_sentence() -> None:
 
 
 def test_extractive_answer_quotes_real_passages(workspace: Workspace) -> None:
-    collection_id, network, _ = handbook(workspace)
+    collection_id, _, _ = handbook(workspace)
     workspace.document(collection_id, "Backup runbook", [BACKUP_SECTION])
     body = _ask(workspace, collection_id, "How long is the retention period for backups?")
     assert body["mode"] == "extractive"
@@ -135,7 +139,9 @@ def test_evidence_is_citable(workspace: Workspace) -> None:
     assert top["ref"] == 1
     assert top["rank"] == 1
     assert top["document_id"] == network
-    assert top["text"] == "To recover a lost password, open the account page and request a reset link by email."
+    assert (
+        top["text"] == "To recover a lost password, open the account page and request a reset link by email."
+    )
     assert top["matched_terms"] == ["recover", "lost", "password"]
     assert top["page_number"] == 2
 

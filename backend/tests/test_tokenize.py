@@ -8,7 +8,12 @@ from passageport.search.tokenize import STOPWORDS, matched_surfaces, query_terms
 
 
 def test_case_folding_and_stopwords() -> None:
-    assert tokenize("The Kernel IS the core of an operating system") == ["kernel", "core", "operating", "system"]
+    assert tokenize("The Kernel IS the core of an operating system") == [
+        "kernel",
+        "core",
+        "operating",
+        "system",
+    ]
     assert "the" in STOPWORDS
 
 

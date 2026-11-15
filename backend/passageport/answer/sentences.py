@@ -13,7 +13,32 @@ from typing import NamedTuple
 
 # Abbreviations after which a period does not end a sentence.
 _ABBREVIATIONS = frozenset(
-    "e.g i.e etc vs cf fig figs eq eqs no nos vol approx dr mr mrs ms prof st sec al inc ltd co".split()
+    [
+        "e.g",
+        "i.e",
+        "etc",
+        "vs",
+        "cf",
+        "fig",
+        "figs",
+        "eq",
+        "eqs",
+        "no",
+        "nos",
+        "vol",
+        "approx",
+        "dr",
+        "mr",
+        "mrs",
+        "ms",
+        "prof",
+        "st",
+        "sec",
+        "al",
+        "inc",
+        "ltd",
+        "co",
+    ]
 )
 _BOUNDARY = re.compile(r"""[.!?]+["')\]]*(?=\s+\S)""")
 _LAST_WORD = re.compile(r"([^\W\d_][\w.]*)[.!?]+[\"')\]]*$")
@@ -33,7 +58,7 @@ def _ends_with_abbreviation(fragment: str) -> bool:
         return False
     word = match.group(1).rstrip(".").lower()
     # A single letter followed by a period is an initial ("J. Smith") or part of "e.g."/"U.S.".
-    return word in _ABBREVIATIONS or len(word) == 1 or "." in word and len(word) <= 4
+    return word in _ABBREVIATIONS or len(word) == 1 or ("." in word and len(word) <= 4)
 
 
 def _starts_sentence(text: str, position: int) -> bool:

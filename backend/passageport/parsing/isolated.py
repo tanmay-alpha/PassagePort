@@ -33,7 +33,7 @@ def _limit_memory() -> None:
     if sys.platform == "win32":
         return
     try:
-        import resource  # noqa: PLC0415
+        import resource
     except ImportError:
         return
     with contextlib.suppress(ValueError, OSError):

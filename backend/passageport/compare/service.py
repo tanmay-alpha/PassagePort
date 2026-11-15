@@ -67,10 +67,12 @@ def _quoted(titles: list[str]) -> str:
     return ", ".join(f'"{t}"' for t in titles)
 
 
-def _require_comparable(rows: list, embedding_version: str) -> None:  # noqa: ANN001 - SQLAlchemy rows
+def _require_comparable(rows: list, embedding_version: str) -> None:
     for row in rows:
         if row.status in ("uploaded", "processing"):
-            raise ApiError(409, "conflict", f'"{row.title}" is still being indexed. Try again when it is ready.')
+            raise ApiError(
+                409, "conflict", f'"{row.title}" is still being indexed. Try again when it is ready.'
+            )
         if row.status != "indexed":
             raise ApiError(409, "conflict", f'"{row.title}" could not be indexed and cannot be compared.')
         if row.embedding_version != embedding_version:
@@ -138,7 +140,9 @@ def run_compare(conn: Connection, user: User, body: CompareIn, settings: Setting
             items.append(AlignItem(entry.ref, row.id, retrieval.vector(candidate)))
             evidence_by_ref[entry.ref] = entry
         documents.append(
-            CompareDocument(document_id=row.id, title=row.title, has_evidence=bool(evidence), evidence=evidence)
+            CompareDocument(
+                document_id=row.id, title=row.title, has_evidence=bool(evidence), evidence=evidence
+            )
         )
     timings = {"retrieve": _ms(started), "align": 0.0, "interpret": 0.0, "total": 0.0}
 

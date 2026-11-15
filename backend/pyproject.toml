@@ -56,10 +56,17 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S", "SIM", "RUF", "PL", "ANN"]
-ignore = ["ANN401", "PLR0913", "PLR2004", "S101", "B008"]
+# E501: `ruff format` owns wrapping; what remains are long prose/regex literals.
+# PLC0415: heavy optional ML/eval dependencies are imported lazily on purpose.
+ignore = ["ANN401", "PLR0913", "PLR2004", "S101", "B008", "E501", "PLC0415"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN", "S", "PLR"]
+# Tests deliberately feed curly quotes / full-width text through normalisation.
+"tests/**" = ["ANN", "S", "PLR", "RUF001"]
+# The prompt strips typographic quotes from model replies.
+"passageport/answer/prompt.py" = ["RUF001"]
+# Process-wide lazily-loaded model singletons.
+"passageport/ml/registry.py" = ["PLW0603"]
 
 [tool.mypy]
 python_version = "3.12"

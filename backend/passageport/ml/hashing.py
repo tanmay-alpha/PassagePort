@@ -7,6 +7,7 @@ exercise the full pipeline quickly. It is never the default and the UI labels it
 from __future__ import annotations
 
 import hashlib
+import itertools
 import re
 
 import numpy as np
@@ -25,7 +26,7 @@ class HashingEmbedder:
     def _embed(self, text: str) -> np.ndarray:
         vec = np.zeros(self.dimensions, dtype=np.float32)
         tokens = _TOKEN.findall(text.lower())
-        for gram in tokens + [f"{a} {b}" for a, b in zip(tokens, tokens[1:], strict=False)]:
+        for gram in tokens + [f"{a} {b}" for a, b in itertools.pairwise(tokens)]:
             digest = hashlib.blake2b(gram.encode(), digest_size=8).digest()
             idx = int.from_bytes(digest[:4], "little") % self.dimensions
             vec[idx] += 1.0 if digest[4] & 1 else -1.0

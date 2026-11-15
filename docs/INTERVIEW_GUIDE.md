@@ -92,7 +92,20 @@ Use these as explanations to adapt, not claims to memorize. Code paths below are
 - **MRR:** mean reciprocal rank of the first relevant result, or zero when absent; this harness truncates at ten results.
 - **nDCG@K:** relevance gains discounted by `log₂(rank + 1)`, divided by ideal DCG; this implementation uses binary gains.
 
-<!-- LEAD: insert headline numbers here -->
+Measured with the default CPU models (`eval/results/default.json`; mini = 58 answerable self-authored queries over 14 documents, SciFact = first 50 test queries, document-level relevance). Timings are from a shared Windows workstation, so treat them as indicative.
+
+| Corpus | Pipeline | Recall@1 | Recall@5 | Recall@10 | MRR@10 | nDCG@10 | p50 ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| mini | keyword | 0.629 | 0.741 | 0.776 | 0.678 | 0.702 | 0.7 |
+| mini | semantic | 0.560 | 0.776 | 0.862 | 0.652 | 0.702 | 5.6 |
+| mini | hybrid | 0.595 | 0.845 | 0.862 | 0.698 | 0.738 | 5.3 |
+| mini | hybrid+rerank | 0.716 | 0.828 | 0.914 | 0.771 | 0.804 | 598.1 |
+| scifact | keyword | 0.600 | 0.790 | 0.834 | 0.701 | 0.731 | 1.1 |
+| scifact | semantic | 0.729 | 0.851 | 0.886 | 0.806 | 0.819 | 8.5 |
+| scifact | hybrid | 0.669 | 0.838 | 0.913 | 0.787 | 0.808 | 9.6 |
+| scifact | hybrid+rerank | 0.615 | 0.863 | 0.926 | 0.750 | 0.791 | 616.2 |
+
+Honest reading: on the self-authored mini set, hybrid and reranking help most (paraphrase queries are where keyword search fails). On the external SciFact subset, vector search alone has the best top-rank metrics and reranking *lowers* MRR while improving Recall@10, so reranking is a switch, not a free upgrade. Full methodology: [SEARCH_EVALUATION.md](SEARCH_EVALUATION.md).
 
 **Code:** `evaluation/metrics.py` — `recall_at_k`, `precision_at_k`, `reciprocal_rank`, `ndcg_at_k`; `evaluation/harness.py` — `run_queries`, `summarize`; `evaluation/run.py` — `cmd_evaluate`.
 
@@ -169,3 +182,11 @@ Use these as explanations to adapt, not claims to memorize. Code paths below are
 - **ANN index:** Replace the exact-search seam in `search/index.py`, retaining embedding-version checks and authorization filters. Publish index generations safely and measure ANN candidate recall against today’s exact reference.
 - **OCR:** Add an explicit OCR stage for image-only pages, preserve page numbering, and store extraction provenance and coordinates. Report partial failures rather than silently treating unreadable pages as empty evidence.
 - **Streaming:** Stream optional generation through a cancellable API, but keep tokens provisional until citation parsing completes. Final structured segments must retain unsupported flags; partial text must not imply verified claims.
+
+## Resume bullets
+
+- Built PassagePort, a document search and cited-answer app with hybrid BM25 + vector + RRF retrieval and cross-encoder reranking; measured on a self-authored mini corpus (hybrid+rerank MRR@10 0.771, nDCG@10 0.8044) and a 50-query BEIR SciFact subset (Recall@10 0.926), reporting where reranking lowers SciFact MRR (0.7498 vs 0.7872 hybrid).
+- Engineered page-accurate citations with a property-tested offset invariant and lease-based, crash-safe indexing with fencing; fixed findings from independent security audits (ZIP preflight, quota row locking, atomic login throttle, fenced workers, transactional DB blobs, guest purge).
+- Shipped with 547 backend tests (also run against real PostgreSQL 17: 228 passed, 1 skipped), 75 frontend tests and 3 Playwright projects (Chromium, mobile Chromium, Firefox) covering upload → index → search → cited PDF page → compare → restart persistence and account isolation; deployed on Vercel + Neon PostgreSQL (https://passageport.vercel.app) with a non-root Docker image verified with offline models.
+
+Every claim above is reproducible from the commands in the [README](../README.md) (Measured results and Verification commands).

@@ -30,9 +30,63 @@ TOKENIZER_NAME = f"unicode case-fold, identifier-aware (compound + parts), stopw
 MAX_TERM_CHARS = 64
 
 STOPWORDS = frozenset(
-    """a an and are as at be been but by can could did do does for from had has have how i if in into is
-    it its of on or should than that the their then there these they this to was were what when where
-    which who why will with would you your""".split()
+    [
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "but",
+        "by",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "should",
+        "than",
+        "that",
+        "the",
+        "their",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "to",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+    ]
 )
 
 # A run of letters/digits, optionally continued through single connector characters. ``_`` is a
@@ -73,7 +127,7 @@ _IRREGULAR = {
 _ES_AFTER = ("ss", "x", "z", "sh", "ch")
 
 
-def _stem_plural(word: str) -> str:
+def _stem_plural(word: str) -> str:  # noqa: PLR0911 - one return per suffix rule
     """Fold regular English plurals to the singular; nothing else (after Harman's S-stemmer)."""
     if len(word) <= 3 or not word.endswith("s"):
         return word

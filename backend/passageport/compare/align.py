@@ -117,16 +117,98 @@ _WORD = re.compile(r"\S+")
 _EDGE_PUNCTUATION = "\"'`()[]{}<>,;:!?*"
 _PLAIN_NUMBER = re.compile(r"[$\u20ac\u00a3~]?\d[\d.,]*")
 _UNITS = frozenset(
-    """% percent ms s sec secs second seconds millisecond milliseconds microsecond microseconds min mins minute
-    minutes hour hours day days week weeks month months year years byte bytes kb mb gb tb kib mib gib kilobytes
-    megabytes gigabytes terabytes hz khz mhz ghz""".split()
+    [
+        "%",
+        "percent",
+        "ms",
+        "s",
+        "sec",
+        "secs",
+        "second",
+        "seconds",
+        "millisecond",
+        "milliseconds",
+        "microsecond",
+        "microseconds",
+        "min",
+        "mins",
+        "minute",
+        "minutes",
+        "hour",
+        "hours",
+        "day",
+        "days",
+        "week",
+        "weeks",
+        "month",
+        "months",
+        "year",
+        "years",
+        "byte",
+        "bytes",
+        "kb",
+        "mb",
+        "gb",
+        "tb",
+        "kib",
+        "mib",
+        "gib",
+        "kilobytes",
+        "megabytes",
+        "gigabytes",
+        "terabytes",
+        "hz",
+        "khz",
+        "mhz",
+        "ghz",
+    ]
 )
 # Words whose presence changes what a sentence asserts; near-identical sentences that differ in
 # them are not reported as shared.
 _POLARITY = frozenset(
-    """no not never none cannot cant wont dont doesnt isnt arent wasnt werent hasnt havent hadnt
-    didnt couldnt wouldnt shouldnt mustnt neednt mightnt shant aint oughtnt darent without unless except only
-    must may should shall always optional required mandatory forbidden allowed""".split()
+    [
+        "no",
+        "not",
+        "never",
+        "none",
+        "cannot",
+        "cant",
+        "wont",
+        "dont",
+        "doesnt",
+        "isnt",
+        "arent",
+        "wasnt",
+        "werent",
+        "hasnt",
+        "havent",
+        "hadnt",
+        "didnt",
+        "couldnt",
+        "wouldnt",
+        "shouldnt",
+        "mustnt",
+        "neednt",
+        "mightnt",
+        "shant",
+        "aint",
+        "oughtnt",
+        "darent",
+        "without",
+        "unless",
+        "except",
+        "only",
+        "must",
+        "may",
+        "should",
+        "shall",
+        "always",
+        "optional",
+        "required",
+        "mandatory",
+        "forbidden",
+        "allowed",
+    ]
 )
 
 
@@ -163,12 +245,13 @@ def _analyse(text: str) -> _Sentence:
     words = [_core(m.group(), m.start()) for m in _WORD.finditer(display)]
     values: list[tuple[int, int, str]] = []
     skip = False
-    for i, (start, end, core) in enumerate(words):
+    for i, (start, word_end, core) in enumerate(words):
         if skip:
             skip = False
             continue
         if not _is_value(core):
             continue
+        end = word_end
         if _PLAIN_NUMBER.fullmatch(core) and i + 1 < len(words) and words[i + 1][2].casefold() in _UNITS:
             end = words[i + 1][1]  # "30 minutes" is one value
             skip = True
@@ -256,6 +339,8 @@ def diff_passages(texts: Mapping[str, str]) -> PassageDiff:
     unique = {
         doc: [s.text for i, s in enumerate(sentences[doc]) if i not in used[doc]] for doc in document_ids
     }
-    normalized = [" ".join(" ".join(s.display.casefold().split()) for s in sentences[doc]) for doc in document_ids]
+    normalized = [
+        " ".join(" ".join(s.display.casefold().split()) for s in sentences[doc]) for doc in document_ids
+    ]
     identical = all(n == normalized[0] for n in normalized[1:]) and bool(normalized[0])
     return PassageDiff(shared, unique, differences, identical)

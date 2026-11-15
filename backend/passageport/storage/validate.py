@@ -149,9 +149,7 @@ def _check_zip_directory(data: bytes) -> None:
             raise too_big
         if position + 46 > end or data[position : position + 4] != _ZIP_CENTRAL_HEADER:
             raise not_docx
-        name_size, extra_size, entry_comment_size, entry_disk = struct.unpack_from(
-            "<4H", data, position + 28
-        )
+        name_size, extra_size, entry_comment_size, entry_disk = struct.unpack_from("<4H", data, position + 28)
         compressed, uncompressed = struct.unpack_from("<2I", data, position + 20)
         local_offset = struct.unpack_from("<I", data, position + 42)[0]
         if 0xFFFFFFFF in (compressed, uncompressed, local_offset):

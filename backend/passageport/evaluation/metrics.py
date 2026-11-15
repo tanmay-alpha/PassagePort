@@ -45,7 +45,9 @@ def ndcg_at_k(ranked: Sequence[Hashable], relevant: Collection[Hashable], k: int
     _check(ranked, k)
     if not relevant:
         raise ValueError("nDCG is undefined without relevant items")
-    dcg = sum(1.0 / math.log2(position + 1) for position, item in enumerate(ranked[:k], start=1) if item in relevant)
+    dcg = sum(
+        1.0 / math.log2(position + 1) for position, item in enumerate(ranked[:k], start=1) if item in relevant
+    )
     ideal = sum(1.0 / math.log2(position + 1) for position in range(1, min(len(relevant), k) + 1))
     return dcg / ideal
 

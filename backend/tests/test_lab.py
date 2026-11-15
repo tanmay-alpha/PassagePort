@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from passageport.api.schemas import LabOut
 from retrieval_helpers import FakeReranker, Workspace, handbook
+
+from passageport.api.schemas import LabOut
 
 pytest_plugins = ["retrieval_helpers"]
 
@@ -13,7 +14,9 @@ def test_lab_exposes_the_same_fused_ranking_as_search(workspace: Workspace) -> N
     payload = {"query": "password reset link", "collection_id": collection, "rerank": False}
     search = workspace.ok("/api/search", payload)
     result = LabOut.model_validate(workspace.ok("/api/lab/search", payload))
-    assert [hit.chunk_id for hit in result.fused.results[:8]] == [hit["chunk_id"] for hit in search["results"]]
+    assert [hit.chunk_id for hit in result.fused.results[:8]] == [
+        hit["chunk_id"] for hit in search["results"]
+    ]
     assert result.keyword.results
     assert result.semantic.results
     assert result.reranked is None
@@ -28,10 +31,19 @@ def test_lab_exposes_the_same_fused_ranking_as_search(workspace: Workspace) -> N
 def test_lab_applies_settings_and_shows_reranked_scores(workspace: Workspace) -> None:
     collection, _, _ = handbook(workspace)
     workspace.use_reranker(FakeReranker(lambda _q, p: float(len(p))))
-    result = LabOut.model_validate(workspace.ok("/api/lab/search", {
-        "query": "password reset link", "collection_id": collection,
-        "rrf_k": 20, "lexical_weight": 0.7, "vector_weight": 1.0, "candidates": 10,
-    }))
+    result = LabOut.model_validate(
+        workspace.ok(
+            "/api/lab/search",
+            {
+                "query": "password reset link",
+                "collection_id": collection,
+                "rrf_k": 20,
+                "lexical_weight": 0.7,
+                "vector_weight": 1.0,
+                "candidates": 10,
+            },
+        )
+    )
     assert result.settings.rrf_k == 20
     assert result.settings.lexical_weight == 0.7
     assert result.settings.vector_weight == 1.0
@@ -44,9 +56,15 @@ def test_lab_applies_settings_and_shows_reranked_scores(workspace: Workspace) ->
 def test_lab_skips_invalid_reranker_without_invalid_json_numbers(workspace: Workspace) -> None:
     collection, _, _ = handbook(workspace)
     workspace.use_reranker(FakeReranker(lambda _q, _p: float("nan")))
-    result = LabOut.model_validate(workspace.ok("/api/lab/search", {
-        "query": "password reset link", "collection_id": collection,
-    }))
+    result = LabOut.model_validate(
+        workspace.ok(
+            "/api/lab/search",
+            {
+                "query": "password reset link",
+                "collection_id": collection,
+            },
+        )
+    )
     assert result.reranked is None
     assert result.fused.results
     assert all(hit.scores.rerank is None for hit in result.fused.results)

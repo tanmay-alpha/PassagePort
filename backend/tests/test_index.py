@@ -6,13 +6,13 @@ import threading
 
 import numpy as np
 import pytest
+from retrieval_helpers import KITCHEN_SECTIONS, NETWORK_SECTIONS, Workspace, handbook
 from sqlalchemy import delete
 
 from passageport.db.schema import chunks
 from passageport.domain import IndexedChunk
 from passageport.search import index as index_module
 from passageport.search.index import CollectionIndex, IndexCache
-from retrieval_helpers import KITCHEN_SECTIONS, NETWORK_SECTIONS, Workspace, handbook
 
 pytest_plugins = ["retrieval_helpers"]
 

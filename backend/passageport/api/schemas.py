@@ -297,7 +297,9 @@ class SearchOut(Schema):
     low_confidence: bool
     notice: str | None  # user-facing explanation for empty / low-confidence / partial results
     settings: EffectiveSettings
-    timings_ms: dict[str, float]  # e.g. {"embed":..,"keyword":..,"semantic":..,"fuse":..,"rerank":..,"total":..}
+    timings_ms: dict[
+        str, float
+    ]  # e.g. {"embed":..,"keyword":..,"semantic":..,"fuse":..,"rerank":..,"total":..}
 
 
 # --------------------------------------------------------------------------- ask

@@ -92,7 +92,7 @@ def parse_md(data: bytes, limits: ParseLimits, title: str | None) -> list[Parsed
 def parse_pdf(data: bytes, limits: ParseLimits) -> list[ParsedPage]:
     """One ``ParsedPage`` per PDF page. Pages without text are kept (as empty text) so that page
     numbers always match the numbers a PDF viewer shows."""
-    from pypdf import PdfReader  # noqa: PLC0415
+    from pypdf import PdfReader
 
     unreadable = ParseError("This file could not be read as a PDF. It may be damaged or incomplete.")
     try:
@@ -170,8 +170,8 @@ def _docx_table_text(table: Any) -> str:
 def parse_docx(data: bytes, limits: ParseLimits, title: str | None) -> list[ParsedPage]:
     """Sections start at Title / Heading 1 / Heading 2 paragraphs; table text is included in
     document order. A document without such headings is divided by size, like a text file."""
-    import docx  # noqa: PLC0415
-    from docx.table import Table  # noqa: PLC0415
+    import docx
+    from docx.table import Table
 
     try:
         document = docx.Document(io.BytesIO(data))

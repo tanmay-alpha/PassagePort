@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from passageport.api.schemas import CompareOut
 from retrieval_helpers import BOB, ConceptEmbedder, Workspace
+
+from passageport.api.schemas import CompareOut
 
 pytest_plugins = ["retrieval_helpers"]
 
@@ -37,7 +38,9 @@ def test_compare_does_not_share_contradictory_contractions(make_workspace: Calla
     workspace = make_workspace(embedder=ConceptEmbedder())
     collection = workspace.collection()
     prefix = "The password reset link used for recovery in the production account "
-    left = workspace.document(collection, "Negative", [prefix + "doesn’t expire after the recovery operation."])
+    left = workspace.document(
+        collection, "Negative", [prefix + "doesn’t expire after the recovery operation."]
+    )
     right = workspace.document(collection, "Positive", [prefix + "does expire after the recovery operation."])
     body = workspace.ok("/api/compare", {"question": "password reset link", "document_ids": [left, right]})
     assert body["alignments"]
@@ -63,11 +66,15 @@ def test_compare_rejects_other_users_documents(workspace: Workspace) -> None:
     assert response.json()["error"]["code"] == "not_found"
 
 
-def test_compare_reports_absent_evidence_without_calling_llm(make_workspace: Callable[..., Workspace]) -> None:
+def test_compare_reports_absent_evidence_without_calling_llm(
+    make_workspace: Callable[..., Workspace],
+) -> None:
     workspace = make_workspace(embedder=ConceptEmbedder())
     left, right = _versions(workspace)
     fake = workspace.use_llm("An invented answer [1].")
-    result = workspace.ok("/api/compare", {"question": "quantum chromodynamics", "document_ids": [left, right]})
+    result = workspace.ok(
+        "/api/compare", {"question": "quantum chromodynamics", "document_ids": [left, right]}
+    )
     assert all(not document["has_evidence"] for document in result["documents"])
     assert result["alignments"] == []
     assert result["interpretation"] is None

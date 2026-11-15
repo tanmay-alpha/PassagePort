@@ -19,6 +19,6 @@ def lab_search(body: LabIn, conn: Conn, user: CurrentUser, settings: SettingsDep
 
 
 @router.get("/evaluation", response_model=EvalReport)
-def lab_evaluation(user: CurrentUser, settings: SettingsDep) -> EvalReport:  # noqa: ARG001 - auth only
+def lab_evaluation(user: CurrentUser, settings: SettingsDep) -> EvalReport:
     """The last committed evaluation run (404 when no report is bundled or configured)."""
     return load_eval_report(settings)

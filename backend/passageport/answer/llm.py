@@ -93,6 +93,6 @@ def complete_safely(client: LLMClient, messages: list[Message]) -> str | None:
         return client.complete(messages)
     except LLMError as exc:
         log.warning("language model call failed: %s", exc)
-    except Exception as exc:  # noqa: BLE001 - a third-party client must not break the request
+    except Exception as exc:
         log.warning("language model call failed: %s", type(exc).__name__)
     return None
