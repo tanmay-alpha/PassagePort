@@ -20,20 +20,50 @@ from passageport.evaluation import harness, metrics
 from passageport.evaluation.datasets import EvalCorpus, EvalQuery, load_corpus
 
 
-def _relevant(query: EvalQuery, corpus: EvalCorpus, rows: list[dict[str, Any]]) -> frozenset[str]:
+def _norm(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _spans(rows: list[dict[str, Any]], source: dict[str, str]) -> dict[str, tuple[int, int]]:
+    """Where each upstream chunk really sits in its source file.
+
+    The upstream ``chunk_offset`` is a best-effort ``str.find`` with a silent fallback, so it can
+    drift when the chunker trims whitespace, and the table does not promise row order. A chunk
+    is a long, contiguous slice of its file, so its content locates it; among repeated
+    occurrences the one nearest the stored offset wins.
+    """
+    spans: dict[str, tuple[int, int]] = {}
+    for row in rows:
+        text, content = source[row["source_document"]], row["content"]
+        hint = row["chunk_offset"]
+        best = -1
+        position = text.find(content)
+        while position >= 0:
+            if best < 0 or abs(position - hint) < abs(best - hint):
+                best = position
+            position = text.find(content, position + 1)
+        start = best if best >= 0 else hint
+        spans[row["chunk_id"]] = (start, start + len(content))
+    return spans
+
+
+def _relevant(
+    query: EvalQuery, corpus: EvalCorpus, rows: list[dict[str, Any]], spans: dict[str, tuple[int, int]]
+) -> frozenset[str]:
     if corpus.relevance == "document":
         return query.relevant_documents
     source = {d.doc_id: d.data.decode("utf-8") for d in corpus.documents}
     relevant = set()
     for row in rows:
-        start, end = row["chunk_offset"], row["chunk_offset"] + len(row["content"])
+        start, end = spans[row["chunk_id"]]
         for quote in query.quotes:
             if quote.document != row["source_document"]:
                 continue
             position = source[quote.document].find(quote.quote)
             if position < 0:
                 raise ValueError(f"query {query.query_id}: quote is not present in the raw upstream input")
-            if start < position + len(quote.quote) and end > position:
+            overlaps = start < position + len(quote.quote) and end > position
+            if overlaps or _norm(quote.quote) in _norm(row["content"]):
                 relevant.add(row["chunk_id"])
     return frozenset(relevant)
 
@@ -76,7 +106,12 @@ def _dataset(args: Any, corpus: EvalCorpus, manager: Any, processor: Any, databa
             corpus.name, texts, vectors, document.doc_id, offsets, [manager.count_tokens(t) for t in texts]
         )
         total_chunks += len(texts)
-    rows = database._get_table(corpus.name).to_arrow().to_pylist()
+    table = database._get_table(corpus.name)
+    # LanceDB 0.19's ``to_arrow()`` silently returns only part of a multi-fragment table.
+    rows = table.head(table.count_rows()).to_pylist()
+    if len(rows) != total_chunks:
+        raise RuntimeError(f"read back {len(rows)} of {total_chunks} upstream chunks")
+    spans = _spans(rows, {d.doc_id: d.data.decode("utf-8") for d in corpus.documents})
     records = []
     for position, query in enumerate(corpus.queries):
         # As with the main harness, warm query execution is excluded from headline latency.
@@ -93,7 +128,12 @@ def _dataset(args: Any, corpus: EvalCorpus, manager: Any, processor: Any, databa
         ids = [r["chunk_id"] for r in ranking]
         if corpus.relevance == "document":
             ids = list(dict.fromkeys(r["source_document"] for r in ranking))
-        records.append((ids, _relevant(query, corpus, rows), latency, query.answerable))
+        relevant = _relevant(query, corpus, rows, spans)
+        if query.answerable and not relevant:
+            raise ValueError(
+                f"query {query.query_id}: no upstream chunk contains or overlaps its labelled quote"
+            )
+        records.append((ids, relevant, latency, query.answerable))
     summary = _summary(records)
     summary["observations"] = [
         {
@@ -118,8 +158,13 @@ def _dataset(args: Any, corpus: EvalCorpus, manager: Any, processor: Any, databa
         "indexing_chunks_per_second": round(total_chunks / (chunk_seconds + embed_seconds), 1),
         "embedding_chunks_per_second": round(total_chunks / embed_seconds, 1),
         "runs": [summary],
-        "settings": {"chunk_max_tokens": 512, "candidates": 20, "rerank_candidates": 20,
-                     "vector_distance": "LanceDB default L2", "normalized_embeddings": False},
+        "settings": {
+            "chunk_max_tokens": 512,
+            "candidates": 20,
+            "rerank_candidates": 20,
+            "vector_distance": "LanceDB default L2",
+            "normalized_embeddings": False,
+        },
     }
 
 
@@ -153,7 +198,9 @@ def run(args: Any, header: dict[str, Any]) -> dict[str, Any]:
         "load_seconds": round(time.perf_counter() - started, 2),
     }
     for info in (embedding, reranker):
-        model = SimpleNamespace(backend="sentence-transformers", model=info["spec"].split(":", 1)[1], _cache_dir=None)
+        model = SimpleNamespace(
+            backend="sentence-transformers", model=info["spec"].split(":", 1)[1], _cache_dir=None
+        )
         size = harness.model_size_bytes(model)
         info["size_mb"] = round(size / 1024**2, 1) if size is not None else None
     payload = header | {

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
+from retrieval_helpers import Workspace
 
 from passageport.api.schemas import EvalReport
-from passageport.evaluation.baseline import _relevant, _summary
+from passageport.evaluation.baseline import _relevant, _spans, _summary
 from passageport.evaluation.datasets import EvalCorpus, EvalDocument, EvalQuery, Quote
 from passageport.evaluation.run import _balanced
-from retrieval_helpers import Workspace
 
 pytest_plugins = ["retrieval_helpers"]
 
@@ -40,14 +39,36 @@ def test_upstream_quote_overlap_matches_improved_relevance_rule() -> None:
         {"chunk_id": "overlap", "source_document": "doc", "chunk_offset": 7, "content": "ans"},
         {"chunk_id": "right", "source_document": "doc", "chunk_offset": 13, "content": " suffix"},
     ]
-    assert _relevant(query, corpus, rows) == frozenset({"overlap"})
+    source = {"doc": "prefix answer suffix"}
+    assert _relevant(query, corpus, rows, _spans(rows, source)) == frozenset({"overlap"})
+
+
+def test_upstream_relevance_survives_wrong_offsets_and_row_order() -> None:
+    # Upstream's stored chunk_offset can drift and LanceDB returns rows in no promised order;
+    # relevance must come from where the chunk text really is.
+    text = "alpha beta. gamma delta answer here. epsilon zeta."
+    corpus = EvalCorpus("sample", "sample", "chunk", (EvalDocument("doc", "doc", "txt", text.encode()),), ())
+    query = EvalQuery("q", "answer", "exact", frozenset({"doc"}), (Quote("doc", "answer here"),))
+    rows = [
+        {"chunk_id": "last", "source_document": "doc", "chunk_offset": 0, "content": "epsilon zeta."},
+        {
+            "chunk_id": "middle",
+            "source_document": "doc",
+            "chunk_offset": 0,
+            "content": "gamma delta answer here.",
+        },
+        {"chunk_id": "first", "source_document": "doc", "chunk_offset": 0, "content": "alpha beta."},
+    ]
+    assert _relevant(query, corpus, rows, _spans(rows, {"doc": text})) == frozenset({"middle"})
 
 
 def test_upstream_summary_never_invents_a_confidence_gate() -> None:
-    result = _summary([
-        (["answer", "other"], frozenset({"answer"}), 10.0, True),
-        (["other"], frozenset(), 20.0, False),
-    ])
+    result = _summary(
+        [
+            (["answer", "other"], frozenset({"answer"}), 10.0, True),
+            (["other"], frozenset(), 20.0, False),
+        ]
+    )
     assert result["recall_at_k"]["1"] == 1.0
     assert result["mrr"] == 1.0
     assert result["queries"] == 1
