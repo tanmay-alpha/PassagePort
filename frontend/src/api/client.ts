@@ -1,163 +1,168 @@
-/**
- * API client for the Knowledge Base backend
- */
+import { reportReachability } from '@/lib/connectivity'
 
-import type {
-  CreateIndexRequest,
-  CreateIndexResponse,
-  DeleteIndexResponse,
-  EncodeBatchRequest,
-  EncodeBatchResponse,
-  EncodeDocRequest,
-  EncodeDocResponse,
-  HealthResponse,
-  IndexRecordCountResponse,
-  IngestLLMSTxtRequest,
-  IngestLLMSTxtResponse,
-  ListIndexesResponse,
-  QueryRequest,
-  QueryResponse,
-  UploadDocResponse,
-} from './types';
+import type { ErrorResponse, UploadOut } from './types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const CSRF_HEADER = 'X-PassagePort-CSRF'
+const API_ROOT = '/api'
 
-/**
- * Helper to handle API responses
- */
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || error.message || `HTTP error: ${response.status}`);
+/** An error the UI can show as-is: the server's message, or a plain one for transport failures. */
+export class ApiError extends Error {
+  readonly status: number
+  readonly code: string
+
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
   }
-  return response.json();
+
+  /** The request never produced an API response (offline, server down, proxy error). */
+  get unreachable(): boolean {
+    return this.code === 'network'
+  }
 }
 
-// =============================================================================
-// Health Check
-// =============================================================================
-
-/**
- * Check backend health
- */
-export async function checkHealth(): Promise<HealthResponse> {
-  const response = await fetch(`${API_BASE_URL}/health`);
-  return handleResponse<HealthResponse>(response);
+export function isApiError(error: unknown, code?: string): error is ApiError {
+  return error instanceof ApiError && (code === undefined || error.code === code)
 }
 
-// =============================================================================
-// Index Management
-// =============================================================================
+export function errorMessage(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  return error instanceof ApiError ? error.message : fallback
+}
 
-/**
- * Create a new index
- */
-export async function createIndex(request: CreateIndexRequest): Promise<CreateIndexResponse> {
-  const response = await fetch(`${API_BASE_URL}/create`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  return handleResponse<CreateIndexResponse>(response);
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler | null = null
+
+/** Called on 401 from any endpoint except the session/auth ones (accounts mode sign-out). */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler
+}
+
+const GATEWAY_STATUSES = new Set([502, 503, 504])
+const NETWORK_MESSAGE = 'The server could not be reached. Check your connection and try again.'
+
+function isErrorResponse(value: unknown): value is ErrorResponse {
+  if (typeof value !== 'object' || value === null || !('error' in value)) return false
+  const { error } = value
+  if (typeof error !== 'object' || error === null || !('code' in error) || !('message' in error)) return false
+  return typeof error.code === 'string' && typeof error.message === 'string'
+}
+
+/** Turns a non-2xx status + body text into an ApiError, tolerating non-JSON proxy errors. */
+export function toApiError(status: number, bodyText: string): ApiError {
+  try {
+    const parsed: unknown = JSON.parse(bodyText)
+    if (isErrorResponse(parsed)) return new ApiError(status, parsed.error.code, parsed.error.message)
+  } catch {
+    // Not JSON: fall through to a generic message.
+  }
+  if (GATEWAY_STATUSES.has(status)) return new ApiError(status, 'network', NETWORK_MESSAGE)
+  return new ApiError(status, 'unexpected_response', `The server returned an unexpected response (${status}).`)
+}
+
+function handleFailure(path: string, error: ApiError): void {
+  reportReachability(!error.unreachable)
+  const isAuthEndpoint = path === '/session' || path.startsWith('/auth/login') || path.startsWith('/auth/signup')
+  if (error.status === 401 && !isAuthEndpoint) unauthorizedHandler?.()
+}
+
+export interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  body?: unknown
+  signal?: AbortSignal
+}
+
+/** JSON request against `/api`. Resolves to `undefined` for 204 responses. */
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? 'GET'
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  let body: string | undefined
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    body = JSON.stringify(options.body)
+  }
+  if (method !== 'GET') headers[CSRF_HEADER] = '1'
+
+  let response: Response
+  try {
+    response = await fetch(`${API_ROOT}${path}`, {
+      method,
+      headers,
+      body,
+      credentials: 'same-origin',
+      signal: options.signal,
+    })
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') throw cause
+    reportReachability(false)
+    throw new ApiError(0, 'network', NETWORK_MESSAGE)
+  }
+
+  if (!response.ok) {
+    const error = toApiError(response.status, await response.text().catch(() => ''))
+    handleFailure(path, error)
+    throw error
+  }
+  reportReachability(true)
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+export interface UploadProgress {
+  loaded: number
+  /** Null when the browser cannot measure the request body; show an indeterminate state. */
+  total: number | null
+}
+
+export interface UploadHandle {
+  promise: Promise<UploadOut>
+  abort: () => void
 }
 
 /**
- * List all available indexes
+ * Uploads one file as multipart field `file`. XMLHttpRequest is used because fetch cannot
+ * report request-body progress; `onProgress` only fires with bytes the browser really sent.
  */
-export async function listIndexes(): Promise<ListIndexesResponse> {
-  const response = await fetch(`${API_BASE_URL}/indexes`);
-  return handleResponse<ListIndexesResponse>(response);
+export function uploadDocument(
+  collectionId: string,
+  file: File,
+  onProgress: (progress: UploadProgress) => void,
+): UploadHandle {
+  const xhr = new XMLHttpRequest()
+  const path = `/collections/${encodeURIComponent(collectionId)}/documents`
+  const { promise, resolve, reject } = Promise.withResolvers<UploadOut>()
+  xhr.open('POST', `${API_ROOT}${path}`)
+  xhr.setRequestHeader('Accept', 'application/json')
+  xhr.setRequestHeader(CSRF_HEADER, '1')
+  xhr.upload.onprogress = (event) => {
+    onProgress({ loaded: event.loaded, total: event.lengthComputable ? event.total : null })
+  }
+  xhr.onload = () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      reportReachability(true)
+      try {
+        resolve(JSON.parse(xhr.responseText) as UploadOut)
+      } catch {
+        reject(new ApiError(xhr.status, 'unexpected_response', 'The server returned an unexpected response.'))
+      }
+      return
+    }
+    const error = toApiError(xhr.status, xhr.responseText)
+    handleFailure(path, error)
+    reject(error)
+  }
+  xhr.onerror = () => {
+    reportReachability(false)
+    reject(new ApiError(0, 'network', NETWORK_MESSAGE))
+  }
+  xhr.onabort = () => reject(new ApiError(0, 'aborted', 'Upload cancelled.'))
+  const form = new FormData()
+  form.append('file', file, file.name)
+  xhr.send(form)
+  return { promise, abort: () => xhr.abort() }
 }
 
-/**
- * Get record count for an index
- */
-export async function getIndexRecordCount(indexName: string): Promise<IndexRecordCountResponse> {
-  const response = await fetch(`${API_BASE_URL}/indexes/${encodeURIComponent(indexName)}/count`);
-  return handleResponse<IndexRecordCountResponse>(response);
-}
-
-/**
- * Delete an index
- */
-export async function deleteIndex(indexName: string): Promise<DeleteIndexResponse> {
-  const response = await fetch(`${API_BASE_URL}/indexes/${encodeURIComponent(indexName)}`, {
-    method: 'DELETE',
-  });
-  return handleResponse<DeleteIndexResponse>(response);
-}
-
-// =============================================================================
-// Document Encoding
-// =============================================================================
-
-/**
- * Encode a single document into an index
- */
-export async function encodeDocument(request: EncodeDocRequest): Promise<EncodeDocResponse> {
-  const response = await fetch(`${API_BASE_URL}/encode_doc`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  return handleResponse<EncodeDocResponse>(response);
-}
-
-/**
- * Encode documents from a directory in batch
- */
-export async function encodeBatch(request: EncodeBatchRequest): Promise<EncodeBatchResponse> {
-  const response = await fetch(`${API_BASE_URL}/encode_batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  return handleResponse<EncodeBatchResponse>(response);
-}
-
-/**
- * Upload and encode a document file
- */
-export async function uploadDocument(file: File, indexName: string): Promise<UploadDocResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('index_name', indexName);
-
-  const response = await fetch(`${API_BASE_URL}/upload_doc`, {
-    method: 'POST',
-    body: formData,
-  });
-  return handleResponse<UploadDocResponse>(response);
-}
-
-// =============================================================================
-// llms.txt Ingestion
-// =============================================================================
-
-/**
- * Ingest markdown documents from an llms.txt URL
- */
-export async function ingestLLMSTxt(request: IngestLLMSTxtRequest): Promise<IngestLLMSTxtResponse> {
-  const response = await fetch(`${API_BASE_URL}/ingest_llms_txt`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  return handleResponse<IngestLLMSTxtResponse>(response);
-}
-
-// =============================================================================
-// Query
-// =============================================================================
-
-/**
- * Perform a semantic search query
- */
-export async function queryKnowledgeBase(request: QueryRequest): Promise<QueryResponse> {
-  const response = await fetch(`${API_BASE_URL}/query`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  return handleResponse<QueryResponse>(response);
+export function documentFileUrl(documentId: string): string {
+  return `${API_ROOT}/documents/${encodeURIComponent(documentId)}/file`
 }

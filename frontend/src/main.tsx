@@ -1,11 +1,29 @@
+import '@fontsource-variable/inter'
+import '@fontsource-variable/source-serif-4'
+import './styles/index.css'
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-// Cloudscape global styles (import ONCE here)
-import '@cloudscape-design/global-styles/index.css'
-import App from './App.tsx'
+import { createBrowserRouter, RouterProvider } from 'react-router'
 
-createRoot(document.getElementById('root')!).render(
+import { AppErrorBoundary, AppProviders, createAppQueryClient } from './App'
+import { initTheme } from './lib/theme'
+import { routes } from './router'
+
+initTheme()
+
+const container = document.getElementById('root')
+if (!container) throw new Error('Missing #root element')
+
+const queryClient = createAppQueryClient()
+const router = createBrowserRouter(routes)
+
+createRoot(container).render(
   <StrictMode>
-    <App />
+    <AppErrorBoundary>
+      <AppProviders queryClient={queryClient}>
+        <RouterProvider router={router} />
+      </AppProviders>
+    </AppErrorBoundary>
   </StrictMode>,
 )

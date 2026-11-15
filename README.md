@@ -1,151 +1,244 @@
-# Simple Knowledge Base
+# PassagePort
 
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-00a393.svg)](https://fastapi.tiangolo.com)
-[![React 19](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
-[![LanceDB](https://img.shields.io/badge/LanceDB-0.19-orange.svg)](https://lancedb.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+A document workspace for finding passages, answering questions with citations, and comparing what
+different files say. Indexing, search, source viewing and comparison run locally without a paid API key.
 
-**A simple, local-first semantic knowledge base.**
+[Architecture](docs/ARCHITECTURE.md) · [Technical walkthrough](docs/TECHNICAL_WALKTHROUGH.md) ·
+[Security](docs/SECURITY.md) · [Deployment](docs/DEPLOYMENT.md) · [Interview guide](docs/INTERVIEW_GUIDE.md)
 
-Add your documents. Search with natural language. Find what matters.
+## Live demo
 
-Simple Knowledge Base uses semantic chunking and vector embeddings to understand your documents, not just match keywords. Results are reranked for relevance, so the best answers surface first.
+**https://passageport.vercel.app** — choose *Continue as guest*. Guest workspaces are deleted after
+24 hours. The demo runs the same image as the Docker setup (real ONNX models) on Vercel, with all
+data in a Neon PostgreSQL database, so nothing depends on the container's disk. Hobby-plan limits
+apply: uploads are capped at 4 MB, and the first request after idle time is slower while the
+container starts and loads models.
 
-## ✨ Features
+## Screenshots
 
-- **Multi-Index Support** — Organize documents into separate searchable collections
-- **Semantic Search** — Find information by meaning, not just keywords
-- **Smart Chunking** — Documents are split at natural boundaries for better context
-- **Reranked Results** — Cross-encoder reranking puts the best matches first
-- **Local & Private** — Everything runs on your machine, no cloud required
-- **Simple API** — Clean REST endpoints for easy integration
-- **MCP Server** — Integrate with AI assistants via Model Context Protocol
+| | |
+| --- | --- |
+| ![Search with the cited PDF page highlighted in the preview](docs/screenshots/after/11-live-search.png) | ![Ask: source cards above the answer and a citation popover showing the cited excerpt](docs/screenshots/after/14-citation-popover.png) |
+| Search with the cited PDF page and passage highlighted (production deployment). | Ask: numbered source cards, inline citations that preview the excerpt on hover or keyboard focus. |
+| ![Compare: word-level changes between two API spec versions and the numbers that differ](docs/screenshots/after/15-compare-diff.png) | ![Search Lab: rank movement of each passage across the retrieval stages](docs/screenshots/after/16-lab-rank-chart.png) |
+| Compare: word-level changes computed from the text, and the numbers that differ. | Search Lab: how each passage's rank moves between retrieval stages, with stage latency. |
+| ![Original PDF page rendered with the cited passage highlighted](docs/screenshots/after/04-viewer.png) | ![Command palette listing screens, workspaces, documents and actions](docs/screenshots/after/13-command-palette.png) |
+| Document viewer: the original PDF page with the cited passage highlighted. | Ctrl/⌘ + K command palette. |
+| ![Library with sample documents and suggested first queries](docs/screenshots/after/02-library.png) | ![Search at phone width](docs/screenshots/after/09-mobile-search.png) |
+| Library with real per-document status and suggested queries. | Search at phone width. |
 
-## 📸 Screenshots
+## Use it
 
-### Search Knowledge Base
+1. Create a workspace — or click **Load sample documents** on the welcome screen to get a ready
+   workspace with original sample files (OS notes, networking notes, two versions of an API spec)
+   and suggested first queries.
+2. Upload PDF, Markdown, plain-text or DOCX files (or drop them anywhere in the workspace).
+   Processing status and failures are shown per file.
+3. Search by meaning, exact words, or both. Open a result to see its source page and highlighted
+   text; copy a citation in one click.
+4. Ask a question for cited excerpts, or compare two to four documents side by side.
+5. Open **Search Lab** to see how each retrieval stage ranks the same passages, and how long it took.
 
-Search through your documents using natural language queries. Results are ranked by semantic relevance with visual indicators showing match quality.
+Press **Ctrl/⌘ + K** anywhere to jump to a workspace, document or screen, or to run a query.
 
-![Search Interface](.github/images/simple-kb-search.png)
+## What it does
 
-### Add Knowledge
+| Feature | Behaviour |
+| --- | --- |
+| Document library | Workspaces, multi-file upload, SHA-256 deduplication, rename, delete, retry and re-index. Original files are kept if indexing fails. |
+| Hybrid retrieval | BM25 lexical search + normalized vector similarity, weighted reciprocal-rank fusion, optional cross-encoder reranking, document filters. |
+| Source citations | PDF page or text section, exact passage offsets, stable chunk identifiers, original-file download. No invented page numbers. |
+| Evidence-backed answers | Without an LLM: verbatim excerpts with citations. With an optional provider: generated answers with citation checks and explicit uncertainty. Retrieved evidence remains visible. |
+| Comparison | Independent evidence retrieval per document, passage alignment, word-level changes, shared/unique sentences and numerical changes computed from text. Optional model interpretation is separate. |
+| Search Lab | Keyword, vector, fused and reranked lists, a rank-movement chart across stages, measured stage latency, effective configuration and reproducible evaluation results. |
+| Access control | Loopback-only local mode, or isolated accounts with Argon2id passwords, server-side sessions and revocable MCP API tokens. |
 
-Create indexes to organize your documents and add content through single file upload or batch directory processing.
+PDF originals use pdf.js. If the original-page text cannot be matched unambiguously, the viewer
+offers the extracted-text view rather than highlighting the wrong passage.
 
-![Add Knowledge Interface](.github/images/simple-kb-add-knowledge.png)
-
-## Quick Start
-
-```bash
-# Install all dependencies
-make install
-
-# Start both frontend and backend
-make dev
-```
-
-This launches:
-
-- **Backend**: <http://localhost:8000> (FastAPI + LanceDB)
-- **Frontend**: <http://localhost:5173> (React + Vite)
-- **API Docs**: <http://localhost:8000/docs> (Swagger UI)
-
-Press `Ctrl+C` to stop both services.
-
-## Development Commands
-
-```bash
-make help        # Show all available commands
-make dev         # Start both frontend and backend
-make backend     # Start only backend
-make frontend    # Start only frontend
-make install     # Install all dependencies
-make test        # Run backend tests
-make lint        # Run linters
-make clean       # Clean generated files
-make mcp-build   # Build the MCP server
-make mcp-dev     # Run MCP server in dev mode
-make mcp-inspect # Test MCP server with Inspector
-```
-
-## Project Structure
-
-```text
-simple-knowledge-base/
-├── backend/          # FastAPI backend (Python 3.13)
-│   ├── app/          # Application code
-│   ├── tests/        # Test suite
-│   └── README.md     # Backend documentation
-├── frontend/         # React frontend (Vite + TypeScript)
-├── mcp-server/       # MCP server for AI assistant integration
-│   ├── src/          # TypeScript source
-│   └── README.md     # MCP server documentation
-├── scripts/          # Development scripts
-│   ├── dev.sh        # Combined dev server
-│   └── start-backend.sh
-├── .github/images/   # Screenshots and assets
-└── Makefile          # Development commands
-```
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Frontend | React 19, Vite, Cloudscape Design |
-| Backend | FastAPI, Python 3.13 |
-| Vector DB | LanceDB |
-| Embeddings | Alibaba-NLP/gte-multilingual-base |
-| Reranker | Alibaba-NLP/gte-multilingual-reranker-base |
-| MCP Server | TypeScript, MCP SDK |
-
-## MCP Server
-
-The MCP (Model Context Protocol) server allows AI assistants to search your knowledge base directly.
-
-### Quick Setup
+## Quick start: Docker
 
 ```bash
-# Build the MCP server
-cd mcp-server
-npm install
+git clone https://github.com/tanmay-alpha/PassagePort.git
+cd PassagePort
+docker compose up --build
+```
+
+Open **http://localhost:8000**. The initial build downloads the embedding and reranker models;
+subsequent starts use the bundled cache. SQLite and originals live in Compose's
+`passageport_passageport-data` volume, not in the disposable container. Do not use
+`docker compose down -v` unless
+you intend to erase that data.
+
+The default local mode has no login and binds only to loopback. For network access, use accounts
+mode behind HTTPS; see [deployment instructions](docs/DEPLOYMENT.md).
+
+## Development
+
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 24 (the version CI uses; the
+frontend declares ≥ 20.19 and the MCP server ≥ 22).
+
+```bash
+# Terminal 1: backend
+cd backend
+uv sync --frozen --extra dev --extra postgres
+uv run uvicorn passageport.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2: frontend
+cd frontend
+npm ci
+npm run dev
+```
+
+The frontend on http://localhost:5173 proxies `/api` to the backend. Alternatively,
+`scripts/dev.ps1` on Windows or `bash scripts/dev.sh` starts both. API documentation is at
+**http://localhost:8000/api/docs**.
+
+### Optional generated answers
+
+Configure an OpenAI-compatible chat-completions endpoint in `backend/.env`:
+
+```dotenv
+PP_LLM_BASE_URL=http://127.0.0.1:11434/v1
+PP_LLM_MODEL=your-installed-local-model
+# PP_LLM_API_KEY=...
+```
+
+The model must already be installed in your local provider. Nothing is silently substituted.
+Only questions and retrieved evidence are sent to the configured endpoint. Generated wording is
+**not independently fact-checked**: citation validity and factual correctness are different claims.
+See [`.env.example`](.env.example) for all settings.
+
+## Architecture and trade-offs
+
+```mermaid
+flowchart LR
+  UI[React + TypeScript] --> API[FastAPI]
+  API --> J[Leased indexing jobs]
+  J --> P[Isolated parser → page-bounded chunks → ONNX embeddings]
+  P --> SQL[(SQLite or PostgreSQL)]
+  API --> R[BM25 + exact cosine → RRF → cross-encoder]
+  SQL --> R
+  R --> E[Evidence + citations]
+  E --> A[Ask / Compare / Search Lab]
+  A -. optional .-> LLM[OpenAI-compatible provider]
+```
+
+- **One transactional source of truth.** Documents, pages, chunks and float32 embeddings share
+  a SQL store. Re-indexing swaps the whole document index atomically; deletion cascades through it.
+- **Versioned cache.** Every chunk mutation increments the collection’s index version. Search
+  rebuilds its in-memory BM25 postings and vector matrix when that version changes.
+- **CPU-first inference.** Defaults are `BAAI/bge-small-en-v1.5` and a MiniLM cross-encoder through
+  fastembed/ONNX Runtime. PyTorch multilingual models are optional, not a mandatory download.
+- **Exact, not approximate, vectors.** Intended for personal workspaces. A 50,000 × 384 float32
+  matrix alone uses about 77 MB, before text and lexical-index overhead. This is not a claim of
+  million-document scale.
+- **Crash recovery.** Jobs have renewable leases and attempt fencing. Failed re-indexing keeps
+  the previous index; files are not discarded.
+
+Model choices, retrieval metrics, datasets, limitations and reproduce commands are documented in
+[Search evaluation](docs/SEARCH_EVALUATION.md). Benchmark numbers are generated by
+`python -m passageport.evaluation.run`, never hardcoded search responses.
+
+## Measured results
+
+Copied from [`eval/results/default.json`](eval/results/default.json) (CPU-only; `bge-small-en-v1.5`
+embeddings + `ms-marco-MiniLM-L-6-v2` cross-encoder). Latency is p50 per query on a shared
+developer workstation, excluding model load.
+
+| Corpus | Run | Recall@1 | Recall@5 | Recall@10 | MRR@10 | nDCG@10 | p50 ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| mini | keyword | 0.6293 | 0.7414 | 0.7759 | 0.6783 | 0.7017 | 0.67 |
+| mini | semantic | 0.5603 | 0.7759 | 0.8621 | 0.6521 | 0.7017 | 5.59 |
+| mini | hybrid | 0.5948 | 0.8448 | 0.8621 | 0.6977 | 0.7383 | 5.29 |
+| mini | hybrid+rerank | 0.7155 | 0.8276 | 0.9138 | 0.771 | 0.8044 | 598.12 |
+| scifact | keyword | 0.6 | 0.79 | 0.834 | 0.7009 | 0.7312 | 1.1 |
+| scifact | semantic | 0.729 | 0.851 | 0.886 | 0.8064 | 0.8188 | 8.51 |
+| scifact | hybrid | 0.669 | 0.838 | 0.913 | 0.7872 | 0.8076 | 9.57 |
+| scifact | hybrid+rerank | 0.615 | 0.863 | 0.926 | 0.7498 | 0.7913 | 616.17 |
+
+- **mini** is a small self-authored corpus (14 documents, 58 answerable questions) whose questions
+  and labels were written together with it, so its numbers are indicative, not an independent test.
+- **scifact** is a deterministic 50-query subset of the BEIR SciFact test set over all 5,183
+  abstracts, not a full-test-set result; there, reranking raises Recall@5/@10 but lowers
+  Recall@1 and MRR versus vector-only or hybrid search, so reranking can be disabled.
+- The original upstream pipeline (commit `a0d8c06`: gte-multilingual models, 512-token whole-file
+  chunks, no refusal) scores higher on mini, nDCG@10 .8781 versus .8044 for these defaults, at
+  ~22× the query latency and ~5× the memory; see
+  [Comparison with the original upstream pipeline](docs/SEARCH_EVALUATION.md#comparison-with-the-original-upstream-pipeline).
+
+Method, caveats and reproduce commands: [Search evaluation](docs/SEARCH_EVALUATION.md).
+
+## Verification commands
+
+```bash
+# Backend: deterministic test embedder, no model downloads
+cd backend
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy passageport
+uv run pytest
+
+# Web client
+cd ../frontend
+npm ci
+npm run lint
+npm run typecheck
+npm test -- --run
+npm run build
+
+# Real browser workflows (build frontend and sync backend first)
+cd ../e2e
+npm ci
+npx playwright install chromium firefox
+npx playwright test
+
+# MCP integration
+cd ../mcp-server
+npm ci
+npm run typecheck
+npm test
 npm run build
 ```
 
-### Configure Your MCP Client
+The browser suite uses the real parser, database, job worker, API and UI, with a deterministic
+test embedder. Real-model evaluation is separate: passing UI tests does not establish semantic
+retrieval quality. [CI](https://github.com/tanmay-alpha/PassagePort/actions/workflows/ci.yml)
+also checks PostgreSQL, Docker and dependency advisories.
 
-Add to your MCP configuration (e.g., `.kiro/settings/mcp.json`):
+## MCP
 
-```json
-{
-  "mcpServers": {
-    "simple-kb": {
-      "command": "node",
-      "args": ["/path/to/simple-knowledge-base/mcp-server/dist/index.js"],
-      "env": {
-        "KB_API_URL": "http://localhost:8000"
-      }
-    }
-  }
-}
-```
+The TypeScript stdio server exposes `list_collections`, `list_documents`, `search`, `get_passage`,
+`get_page` and `ask`. Set `PASSAGEPORT_API_URL` and, in accounts mode, a personal
+`PASSAGEPORT_API_TOKEN`. See [MCP setup](mcp-server/README.md).
 
-### Available Tools
+## Privacy and limitations
 
-| Tool | Description |
-|------|-------------|
-| `kb_list_indexes` | List all available indexes |
-| `kb_search_docs` | Semantic search with ranked results |
-| `kb_fetch_doc` | Fetch chunks from a specific document |
+- Local mode is single-user; accounts mode checks ownership on every document and retrieval path.
+- Uploaded files and the database are not application-encrypted at rest. Use encrypted disks and
+  managed storage appropriate to your documents.
+- Scanned PDFs need OCR, which is not included. Password-protected (not openable with an empty
+  password) or image-only PDFs fail explicitly.
+- Parser processes have deadlines and limits, not a complete hostile-code sandbox.
+- Compute rate limits and sign-in/sign-up throttles are per process. Per-user quotas, the guest
+  cap (`PP_MAX_GUESTS`) and the database ceiling (`PP_MAX_DATABASE_MB`) are enforced in the
+  database across processes. Public deployments still need operational abuse controls and backups.
+- Hosted storage must be persistent. A free service’s ephemeral disk is **not** durable hosting.
 
-See [mcp-server/README.md](mcp-server/README.md) for detailed documentation.
+## Attribution and original contribution
 
-## Documentation
+PassagePort began from [Praveen Chamarthi’s Simple Knowledge Base](https://github.com/praveenc/simple-knowledge-base),
+MIT, commit `a0d8c06`. Its commit history and copyright notice are preserved.
 
-- [Backend API Documentation](backend/README.md)
-- [MCP Server Documentation](mcp-server/README.md)
+Retained foundations: FastAPI with Pydantic models, React/Vite/TypeScript, semchunk, the
+retrieve-then-rerank pattern, the MCP integration concept and the idea of property-testing chunk
+invariants. Upstream's gte-multilingual models remain available as an optional backend.
 
-## License
+PassagePort’s additions are the document/page lifecycle and citation model, transactional
+persistence, hybrid retrieval, evidence-backed answers, independently computed document
+comparison, Search Lab/evaluation harness, account isolation, leased indexing, redesigned UI and
+release/testing infrastructure. This is a derived project with substantial new engineering—not
+a claim to have invented semantic search or written the upstream prototype.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+See [baseline audit](docs/BASELINE_AUDIT.md), [NOTICE](NOTICE.md) and [MIT license](LICENSE).
+

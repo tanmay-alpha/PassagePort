@@ -1,0 +1,71 @@
+Marrowfield Ledger Database - Backup and Restore Runbook
+
+Purpose and scope
+
+This runbook tells the on-call operator how backups of the Marrowfield ledger database are taken, how long they are kept, and how to restore from them. Marrowfield is an internal service; the tools named here (mfbackup, mfrestore, mfverify) are in-house utilities installed on the two backup hosts.
+
+Targets
+
+The business has agreed two recovery targets for the ledger. The recovery point objective is 5 minutes, meaning that after a disaster we may lose at most the last 5 minutes of committed transactions. The recovery time objective is 4 hours, measured from the decision to restore until the ledger accepts writes again. Both targets assume the loss of the entire primary site. A restore that only needs to undo a bad change on a healthy cluster should finish much faster, typically within 45 minutes.
+
+Backup schedule
+
+Three kinds of backup run automatically.
+
+A full snapshot is taken every Sunday at 01:30 UTC. It copies every data file and usually takes about 2 hours 20 minutes for the current database size of 1.8 TB.
+
+An incremental backup runs every 6 hours, at 00:15, 06:15, 12:15 and 18:15 UTC. It stores only the blocks changed since the previous backup of any kind and normally completes in under 12 minutes.
+
+Transaction log segments are shipped continuously. A segment is closed and uploaded when it reaches 64 MB or when 5 minutes have passed, whichever comes first. This log shipping is what makes the recovery point objective achievable; if it stops, the objective is at risk within minutes.
+
+All backups are written to the storage bucket named cold-vault-2, which is in a different region from the primary site, and are encrypted before upload.
+
+Retention
+
+Log segments and incremental backups are kept for 14 days. Weekly full snapshots are kept for 12 weeks. The first full snapshot of each month is promoted to a monthly archive and kept for 7 years to meet financial record-keeping duties. Expired backups are removed by a pruning job that runs daily at 03:45 UTC. Never delete backup files by hand; if the bucket is running short of space, raise it with the storage owner instead.
+
+Taking a manual backup
+
+Take a manual full snapshot before any schema migration or major version upgrade. Run the following on a backup host:
+
+mfbackup snapshot --full --label pre-change --target cold-vault-2
+
+The command prints a snapshot identifier such as snap-20417 when it finishes. Record it in the change ticket. A manual snapshot carries the same 12-week retention as a scheduled one unless you add the flag --keep-days with a different number. If the command stops with error MF-E305, another backup holds the backup lock; wait for it to finish rather than forcing the lock, because two concurrent snapshots produce an unusable result.
+
+Restoring to a point in time
+
+1. Declare an incident and get approval from the incident commander. A restore replaces the contents of the target cluster.
+
+2. Choose the recovery moment. For a disaster this is the latest available time. For a bad change it is the last moment before the change, in UTC.
+
+3. List available snapshots with: mfbackup list --target cold-vault-2. Pick the newest full snapshot taken before the recovery moment.
+
+4. Start the restore on an empty standby cluster, never on the damaged primary:
+
+mfrestore apply --snapshot-id snap-20417 --until 2031-03-09T10:42:00Z --parallel 8
+
+The tool downloads the full snapshot, applies the later incremental backups, and then replays log segments up to the time given with --until. With 8 parallel streams the download phase takes roughly 70 minutes; replay speed is about 15 minutes for every hour of logs.
+
+5. When the tool reports that replay is complete, run the verification described in the next section.
+
+6. Point the application at the restored cluster by updating the service record ledger-primary, and confirm that writes succeed. Keep the old cluster untouched for at least 48 hours in case it is needed for investigation.
+
+Verification
+
+A backup that has never been restored is only a hope. Every restore, real or practice, ends with these checks.
+
+Run mfverify checksum --cluster standby-1 to compare page checksums against the manifest stored with the snapshot. A clean run exits with status 0. Then run mfverify balance, which recomputes the sum of all ledger accounts; the result must equal zero, because every entry is double-sided. Finally, compare the newest transaction timestamp in the restored database with the requested recovery moment; the gap should be less than 5 minutes.
+
+A restore drill is held on the first Wednesday of every quarter. The drill restores the latest backups to a scratch cluster, runs all three checks, and records how long the whole exercise took. If the measured time exceeds 3 hours, the database owner must open a review, since that leaves less than one hour of margin against the recovery time objective. In addition, an automated job restores the most recent incremental chain every night at 04:30 UTC and runs the checksum comparison only.
+
+Failure modes
+
+Log shipping stalls. The alert named ledger_log_ship_lag fires when the newest uploaded segment is more than 10 minutes old. The usual causes are expired upload credentials or a full local spool directory. Fix the cause, then run mfbackup ship --resume. Do not restart the database to clear the spool.
+
+Checksum mismatch. If verification reports error MF-E217, one or more pages in the restored cluster differ from the manifest. Do not put that cluster into service. Restore again from the previous full snapshot and replay a longer stretch of logs; then report the damaged snapshot to the storage owner.
+
+Missing log segment. If replay stops with a message about a gap in the sequence, the restore can only go as far as the last segment before the gap. Tell the incident commander immediately, because the recovery point will be worse than the target.
+
+Slow download. Download throughput below 150 MB per second usually means the backup host is sharing its network link with the pruning job or another restore. Pause the other job; raising --parallel beyond 16 does not help and has caused timeouts.
+
+Bucket unreachable. If cold-vault-2 cannot be reached at all, a second copy of the weekly full snapshots, though not of the logs, exists on the tape library at the secondary site. Restoring from tape takes about 9 hours and will miss both targets, so escalate to the service director before starting.

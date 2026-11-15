@@ -2,9 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>PassagePort</title>
+    <meta
+      name="description"
+      content="PassagePort is a document workspace: upload PDFs and text, search them with page-accurate citations, ask evidence-backed questions and compare documents side by side."
+    />
+    <meta name="theme-color" content="#FAFAF7" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- External, render-blocking and tiny: applies the saved theme before first paint.
+         It cannot be inline because the server CSP only allows scripts from 'self'. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

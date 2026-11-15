@@ -1,0 +1,43 @@
+Indexing Guide for MarlinStore
+
+An index is a second copy of some of a table's data, arranged so that particular questions can be answered without reading the whole table. This guide explains the index types MarlinStore provides, how the planner decides whether to use them, and when adding one makes things worse. Parameter names and defaults are those of MarlinStore 9.
+
+B-tree indexes
+
+The default index type is a B-tree: a balanced tree whose leaf pages hold the indexed values in sorted order, each with a pointer to the table row. Because the tree is balanced, finding one value in a table of a hundred million rows takes about four page reads. Because the leaves are sorted and linked, the same structure serves equality tests, range conditions such as dates between two bounds, prefix matches on text, and ORDER BY without a separate sort step.
+
+Leaf pages are filled to ix_leaf_fill_pct, default 90, when an index is built. The remaining space absorbs later insertions without an immediate page split.
+
+Hash indexes
+
+A hash index stores a 32-bit hash of each value and nothing about ordering. It answers equality lookups in a nearly constant number of page reads and can be smaller than a B-tree when the indexed values are long strings. It cannot help with ranges, sorting or prefix searches, and it cannot enforce uniqueness. In practice the B-tree is within a few percent of its speed for equality, so choose a hash index only for long keys that are compared for exact equality and nothing else.
+
+Composite indexes
+
+An index may cover several columns, and the order of those columns matters a great deal. Entries are sorted by the first column, then by the second within equal values of the first, and so on, exactly like a phone book sorted by surname and then by given name. The index is useful for conditions on a leading prefix of its columns. An index on customer, status and creation date serves a filter on customer alone or on customer and status, but a filter on status alone cannot descend the tree and gains almost nothing.
+
+Covering indexes
+
+Normally an index lookup is followed by a visit to the table to fetch the remaining columns, and those visits are random reads that dominate the cost. If the index contains every column the query needs, the table visit can be skipped; this is an index-only scan. MarlinStore lets you attach extra columns to the leaf entries with an INCLUDE clause without making them part of the sort key. The engine still has to confirm that a row is visible to the current transaction, which it does cheaply through a visibility bitmap, so index-only scans are fastest on tables that have been swept recently.
+
+Selectivity
+
+Selectivity is the fraction of rows that a condition lets through. An index pays off when that fraction is small. Fetching 0.1 percent of a table through an index is far cheaper than reading it all, but fetching 30 percent through an index means millions of random reads, and a sequential pass over the table is quicker. As a rough guide, the planner abandons a plain index scan somewhere between 5 and 15 percent of the table, depending on how well the physical row order follows the index order.
+
+This is why an index on a column with only a handful of distinct values, such as a boolean flag or a status with four states, is rarely used. The exception is a partial index, which stores only the rows matching a fixed condition. An index restricted to unshipped orders stays tiny and highly selective even when the status column as a whole is not.
+
+The query planner
+
+The planner estimates the cost of each candidate plan from statistics and picks the cheapest. The statistics come from sampling: the ANALYZE command reads planner_sample_rows rows per table, default 30000, and records the most common values and a histogram for each column. Stale statistics are the most frequent reason for a good index being ignored or a bad one being chosen, so after a bulk load run ANALYZE before investigating anything else.
+
+Two cost parameters shape the choice between index and sequential access. The cost of a sequential page read is fixed at 1.0, and random_fetch_cost, default 4.0, expresses how much more expensive a random page read is. The default dates from spinning disks. On solid-state storage a value near 1.2 is realistic, and lowering it makes the planner more willing to use indexes. Always confirm a change with EXPLAIN on real queries, since the plan output shows estimated against actual row counts and exposes misestimates directly.
+
+Bloat and maintenance
+
+Indexes degrade over time. Updates and deletes leave dead entries behind, and page splits leave pages half empty. Space freed inside a page can be reused, but a page is returned to the system only when it becomes completely empty, so an index on a table with heavy churn can grow to several times its ideal size. A bloated index is slower to scan and wastes cache memory.
+
+The ixhealth command reports the estimated bloat of every index. When the figure exceeds 40 percent, rebuild the index with REINDEX ONLINE, which builds a fresh copy alongside the old one and swaps them without blocking writes; it needs free disk space equal to the size of the new index while it runs. The background sweeper removes dead entries once a table has changed by more than sweep_trigger_ratio, default 0.15, of its rows, and lowering that value for very large tables keeps bloat from accumulating between sweeps.
+
+When not to index
+
+Every index must be updated on each insert and on each update that touches its columns, and each one adds to write-ahead log volume and backup size. In our measurements each additional index on a busy table lowered insert throughput by roughly 8 percent. Skip the index in these cases: tables under about 1000 rows, where a sequential read of a few pages is already as fast as it gets; columns with few distinct values, unless a partial index applies; columns that are written constantly but almost never filtered on; and indexes that duplicate the leading columns of an existing composite index. The ix_usage_stats view counts scans per index, and an index whose count has stayed at zero for 30 days is a candidate for removal.

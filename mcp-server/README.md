@@ -1,205 +1,164 @@
-# Simple Knowledge Base MCP Server
+# PassagePort MCP server
 
-[![Node.js 18+](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
-[![MCP SDK](https://img.shields.io/badge/MCP%20SDK-1.0.0-blue.svg)](https://modelcontextprotocol.io/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
+A [Model Context Protocol](https://modelcontextprotocol.io/) server that lets an AI assistant
+search your PassagePort collections and quote what it finds with page-accurate citations.
 
-An MCP (Model Context Protocol) server that provides semantic search capabilities over the Simple Knowledge Base. Use it to give AI assistants access to your indexed documents.
+It is a thin, read-only client of the PassagePort HTTP API: it never uploads, modifies or
+deletes anything, and it talks only to the PassagePort server you configure.
 
-## Features
+## Tools
 
-| Tool | Description |
-|------|-------------|
-| `kb_list_indexes` | List all available indexes in the knowledge base |
-| `kb_search_docs` | Semantic search across documents with ranked results |
-| `kb_fetch_doc` | Fetch chunks from a specific source document |
+| Tool | Input | Returns |
+|------|-------|---------|
+| `list_collections` | — | Collections with ids and document / passage counts. |
+| `list_documents` | `collection_id` | Documents of a collection with indexing status. |
+| `search` | `collection_id`, `query`, `mode?` (`hybrid` \| `keyword` \| `semantic`), `top_k?` (1–50), `document_ids?` | Ranked passages. Each has `citation`, `document_title`, `page_label`, `page_number`, `chunk_id`, `document_id`, character offsets, text and scores. |
+| `get_passage` | `chunk_id` | The exact text and location of one passage. |
+| `get_page` | `document_id`, `page_number` | Full extracted text of one page (PDF) or section (TXT/MD/DOCX). |
+| `ask` | `collection_id`, `question`, `top_k?` (1–12), `document_ids?` | An answer with numbered evidence passages. `mode` says how it was produced: `generated` (the server's LLM), `extractive` (verbatim sentences, no LLM) or `insufficient` (no answer). |
 
-## Quick Start
+Example `search` result (shortened):
 
-### 1. Start the Backend
-
-The MCP server requires the Simple Knowledge Base backend to be running:
-
-```bash
-# From the project root
-cd simple-knowledge-base
-
-make install    # Install all dependencies (first time only)
-make backend    # Start the backend on http://localhost:8000
+```json
+{
+  "query": "vacation days",
+  "mode": "hybrid",
+  "reranked": true,
+  "low_confidence": false,
+  "notice": null,
+  "passages": [
+    {
+      "rank": 1,
+      "citation": "Employee Handbook — Page 12",
+      "chunk_id": "…",
+      "document_id": "…",
+      "document_title": "Employee Handbook",
+      "locator_kind": "page",
+      "page_number": 12,
+      "page_label": "Page 12",
+      "char_start": 100,
+      "char_end": 160,
+      "text": "Employees accrue 1.5 vacation days per month of service.",
+      "matched_terms": ["vacation", "days"],
+      "scores": { "keyword": 7.25, "semantic": 0.81, "fused": 0.032, "rerank": 4.5 }
+    }
+  ]
+}
 ```
 
-### 2. Install & Build the MCP Server
+`char_start` / `char_end` index into the text returned by `get_page` for that `page_number`.
+
+## Setup
+
+Requires Node.js 22 or newer and a running PassagePort server.
 
 ```bash
 cd mcp-server
-npm install
+npm ci
 npm run build
 ```
 
-### 3. Configure Your MCP Client
+### Configuration
 
-Add to your MCP client configuration file (e.g., `.kiro/settings/mcp.json` or `~/.kiro/settings/mcp.json`):
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PASSAGEPORT_API_URL` | `http://127.0.0.1:8000` | Origin of the PassagePort server. |
+| `PASSAGEPORT_API_TOKEN` | _(unset)_ | API token, sent as `Authorization: Bearer …`. Required when the server runs with `PP_AUTH_MODE=accounts`; not needed in the default local mode. |
+| `PASSAGEPORT_TIMEOUT_MS` | `90000` | Per-request timeout. |
+
+In accounts mode, sign in to PassagePort and create an API token (`POST /api/auth/tokens`).
+The token is shown once. It gives access to that account's
+collections only. Use an `https://` URL whenever the server is not on your own machine; the MCP
+server warns at startup if a token would be sent over plain HTTP to a remote host.
+
+### Claude Desktop
+
+Add the server to `claude_desktop_config.json` (Settings → Developer → Edit Config):
 
 ```json
 {
   "mcpServers": {
-    "simple-kb": {
+    "passageport": {
       "command": "node",
-      "args": ["/absolute/path/to/simple-knowledge-base/mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/PassagePort/mcp-server/dist/index.js"],
       "env": {
-        "KB_API_URL": "http://localhost:8000"
+        "PASSAGEPORT_API_URL": "http://127.0.0.1:8000"
       }
     }
   }
 }
 ```
 
-> **Note:** Replace `/absolute/path/to/` with the actual path to your installation.
+On Windows, write the path with forward slashes or escaped backslashes, for example
+`"C:/Users/you/PassagePort/mcp-server/dist/index.js"`.
 
-## Configuration
+Against a server in accounts mode:
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `KB_API_URL` | Backend API URL | `http://localhost:8000` |
+```json
+{
+  "mcpServers": {
+    "passageport": {
+      "command": "node",
+      "args": ["/absolute/path/to/PassagePort/mcp-server/dist/index.js"],
+      "env": {
+        "PASSAGEPORT_API_URL": "https://passageport.example.com",
+        "PASSAGEPORT_API_TOKEN": "<your API token>"
+      }
+    }
+  }
+}
+```
 
-Example with custom port:
+### Other MCP clients
+
+Any client that launches stdio servers works with the same three pieces: the command `node`,
+the argument `<path>/mcp-server/dist/index.js`, and the environment variables above. For
+example, with Claude Code:
 
 ```bash
-KB_API_URL=http://localhost:9000 npm start
+claude mcp add --transport stdio \
+  --env PASSAGEPORT_API_URL=http://127.0.0.1:8000 \
+  passageport -- node /absolute/path/to/PassagePort/mcp-server/dist/index.js
 ```
+
+To try the tools interactively, use the MCP Inspector:
+
+```bash
+npm run inspect
+```
+
+## Behaviour worth knowing
+
+- **Errors** from the API (`{"error": {"code", "message"}}`) are returned as tool errors with the
+  server's message and code, for example `Collection not found. (not_found)`. Network problems
+  are reported as `unreachable`, slow responses as `timeout`. Nothing is retried automatically.
+- **Input validation** happens before any request is sent (Zod schemas); invalid arguments
+  never reach the API.
+- **Privacy**: the server logs its version, the API URL and whether a token is set to stderr.
+  It never logs queries, document text or the token.
+- **`ask` without an LLM**: when the PassagePort server has no LLM configured, answers are
+  extractive (sentences quoted from the evidence). The MCP server itself never calls an LLM.
 
 ## Development
 
 ```bash
-# Run in development mode (with hot reload via tsx)
-npm run dev
-
-# Type check without building
-npm run typecheck
-
-# Build for production
-npm run build
-
-# Run production build
-npm start
+npm run dev         # run from source (tsx)
+npm run typecheck   # tsc --noEmit, including tests
+npm test            # node:test, with a mocked fetch and an in-memory MCP transport
+npm run build       # emit dist/
 ```
 
-### Testing with MCP Inspector
+Source layout:
 
-The [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector) lets you interactively test your server:
-
-```bash
-# Test development version
-npm run inspect:dev
-
-# Test production build
-npm run inspect
-```
-
-## Tools Reference
-
-### kb_list_indexes
-
-List all available indexes in the knowledge base. Use this first to discover which indexes are available.
-
-**Input:** None
-
-**Example Output:**
-
-```json
-{
-  "indexes": ["my-docs", "research-papers"],
-  "count": 2
-}
-```
-
----
-
-### kb_search_docs
-
-Search the knowledge base using natural language. Returns semantically ranked results with content snippets.
-
-**Input:**
-
-- `query` (string, required) - Natural language search query
-- `index_name` (string, required) - Name of the index to search
-- `top_k` (number, optional) - Maximum results to return (default: 5)
-
-**Example Output:**
-
-```json
-{
-  "query": "how to configure logging",
-  "index_name": "my-docs",
-  "results": [
-    {
-      "content": "To configure logging, set the LOG_LEVEL environment variable...",
-      "relevance_score": 0.85,
-      "source_document": "/docs/configuration.md",
-      "chunk_offset": 3
-    }
-  ],
-  "total_results": 1
-}
-```
-
----
-
-### kb_fetch_doc
-
-Fetch all chunks from a specific document. Use this after `kb_search_docs` to get more context from a source.
-
-**Input:**
-
-- `index_name` (string, required) - Name of the index containing the document
-- `source_document` (string, required) - Path or name of the source document
-- `top_k` (number, optional) - Maximum chunks to return (default: 10)
-
-**Example Output:**
-
-```json
-{
-  "source_document": "configuration.md",
-  "chunks": [
-    {
-      "content": "Configuration section content...",
-      "chunk_offset": 0,
-      "relevance_score": 0.92
-    }
-  ],
-  "total_chunks": 1
-}
-```
-
-## Typical Workflow
-
-1. **List indexes** to see what's available:
-
-   ```
-   kb_list_indexes
-   ```
-
-2. **Search** for relevant content:
-
-   ```
-   kb_search_docs(query="authentication setup", index_name="my-docs", top_k=5)
-   ```
-
-3. **Fetch more** from a specific document if needed:
-
-   ```
-   kb_fetch_doc(index_name="my-docs", source_document="auth-guide.md", top_k=10)
-   ```
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| "Backend connection: FAILED" | Ensure the backend is running (`make backend` from project root) |
-| "Failed to list indexes" | Check `KB_API_URL` points to the correct backend URL |
-| Empty search results | Verify the index exists and contains documents |
+| File | Responsibility |
+|------|----------------|
+| `src/config.ts` | Environment variables → validated configuration. |
+| `src/api-client.ts` | HTTP client: auth header, timeout, error mapping, response parsing. |
+| `src/types.ts` | Zod parsers for the API responses this server reads. |
+| `src/tools.ts` | Tool input schemas and handlers (API response → citation-ready result). |
+| `src/server.ts` | Registers the tools on an `McpServer`. |
+| `src/index.ts` | stdio entrypoint (`passageport-mcp`). |
 
 ## License
 
-MIT
+MIT — see [`../LICENSE`](../LICENSE) and [`../NOTICE.md`](../NOTICE.md).

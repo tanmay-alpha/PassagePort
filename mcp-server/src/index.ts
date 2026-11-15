@@ -1,185 +1,53 @@
 #!/usr/bin/env node
 /**
- * Simple Knowledge Base MCP Server
+ * PassagePort MCP server (stdio transport).
  *
- * Provides semantic search capabilities over the knowledge base via MCP protocol.
+ * stdout carries the MCP protocol, so all diagnostics go to stderr.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 
-import { APP_NAME, APP_VERSION, API_BASE_URL } from "./config.js";
-import { kbSearchDocs, kbFetchDoc, kbListIndexes } from "./tools.js";
-import { checkHealth } from "./api-client.js";
+import { PassagePortClient, PassagePortError } from "./api-client.js";
+import { ConfigError, SERVER_NAME, SERVER_VERSION, loadConfig } from "./config.js";
+import { createServer } from "./server.js";
 
-// Initialize MCP server
-const server = new McpServer({
-  name: APP_NAME,
-  version: APP_VERSION,
-});
+const PROBE_TIMEOUT_MS = 3000;
 
-// Register kb_list_indexes tool
-server.registerTool(
-  "kb_list_indexes",
-  {
-    description: "List all available indexes in the knowledge base. Use this to discover which indexes are available before searching.",
-    inputSchema: {},
-  },
-  async () => {
-    try {
-      const result = await kbListIndexes();
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              error: "Failed to list indexes",
-              message: String(error),
-            }),
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-// Register kb_search_docs tool
-server.registerTool(
-  "kb_search_docs",
-  {
-    description:
-      "Search the knowledge base for relevant documents using semantic search. Returns ranked results with content snippets, relevance scores, and source document paths.",
-    inputSchema: {
-      query: z.string().describe("Natural language search query"),
-      index_name: z.string().describe("Name of the index to search (use kb_list_indexes to see available indexes)"),
-      top_k: z
-        .number()
-        .optional()
-        .default(5)
-        .describe("Maximum number of results to return (default: 5)"),
-    },
-  },
-  async ({ query, index_name, top_k }) => {
-    try {
-      const results = await kbSearchDocs(query, index_name, top_k ?? 5);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(results, null, 2),
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              error: "Search failed",
-              message: String(error),
-            }),
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-// Register kb_fetch_doc tool
-server.registerTool(
-  "kb_fetch_doc",
-  {
-    description:
-      "Fetch chunks from a specific document in the knowledge base. Use this after kb_search_docs to get more content from a particular source document.",
-    inputSchema: {
-      index_name: z.string().describe("Name of the index containing the document"),
-      source_document: z
-        .string()
-        .describe("Path or name of the source document (from kb_search_docs results)"),
-      top_k: z
-        .number()
-        .optional()
-        .default(10)
-        .describe("Maximum number of chunks to return (default: 10)"),
-    },
-  },
-  async ({ index_name, source_document, top_k }) => {
-    try {
-      const result = await kbFetchDoc(index_name, source_document, top_k ?? 10);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              error: "Fetch failed",
-              message: String(error),
-            }),
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-/**
- * Main entry point
- */
 async function main(): Promise<void> {
-  // Log to stderr (stdout is reserved for MCP protocol)
-  console.error(`Starting ${APP_NAME} v${APP_VERSION}`);
-  console.error(`Backend API: ${API_BASE_URL}`);
+  const config = loadConfig();
+  console.error(`${SERVER_NAME} MCP server v${SERVER_VERSION}`);
+  console.error(`API: ${config.apiUrl} (token ${config.apiToken ? "set" : "not set"})`);
+  for (const warning of config.warnings) console.error(`Warning: ${warning}`);
 
-  // Check backend health
-  try {
-    await checkHealth();
-    console.error("Backend connection: OK");
-  } catch (error) {
-    console.error("Backend connection: FAILED -", String(error));
-    console.error("Warning: Server starting but backend may be unavailable");
-  }
+  const client = new PassagePortClient({
+    baseUrl: config.apiUrl,
+    token: config.apiToken,
+    timeoutMs: config.timeoutMs,
+  });
 
-  // Start server with stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await createServer(client).connect(new StdioServerTransport());
 
-  console.error("Server running on stdio");
+  // Diagnostic only, and deliberately not awaited: MCP initialization must never wait for the
+  // backend, which may be slow, stalled or started later. Tool calls report failures themselves.
+  const probe = new PassagePortClient({
+    baseUrl: config.apiUrl,
+    token: config.apiToken,
+    timeoutMs: Math.min(config.timeoutMs, PROBE_TIMEOUT_MS),
+  });
+  probe.health().then(
+    () => console.error("API reachable."),
+    (error: unknown) => {
+      const reason = error instanceof PassagePortError ? error.message : "unknown error";
+      console.error(`Warning: API not reachable yet: ${reason}`);
+    },
+  );
 }
 
-// Handle uncaught errors
-process.on("uncaughtException", (error) => {
-  console.error("Uncaught exception:", error);
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection:", reason);
-  process.exit(1);
-});
-
-main().catch((error) => {
-  console.error("Fatal error:", error);
+main().catch((error: unknown) => {
+  if (error instanceof ConfigError) {
+    console.error(`Configuration error: ${error.message}`);
+  } else {
+    console.error("Fatal error:", error instanceof Error ? error.name : "unknown");
+  }
   process.exit(1);
 });

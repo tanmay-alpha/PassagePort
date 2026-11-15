@@ -1,341 +1,70 @@
-# simple-knowledge-base Backend
+# PassagePort backend
 
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-00a393.svg)](https://fastapi.tiangolo.com)
-[![LanceDB](https://img.shields.io/badge/LanceDB-0.19-orange.svg)](https://lancedb.com)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Tests](https://img.shields.io/badge/tests-72%20passed-brightgreen.svg)](#running-tests)
+FastAPI service for document ingestion, hybrid retrieval, evidence-backed answers, document
+comparison and the Search Lab. Python 3.12+, managed with [uv](https://docs.astral.sh/uv/).
+Interactive API reference: `http://127.0.0.1:8000/api/docs` while the server runs.
 
-A FastAPI-based semantic search API that enables document ingestion, automatic chunking, embedding generation, and intelligent search with reranking. Supports **multiple named indexes** for organizing different document collections.
-
-## Features
-
-- **Multi-Index Support**: Create and manage multiple named indexes for different document collections
-- **Document Ingestion**: Single file or batch directory processing into specific indexes
-- **Semantic Chunking**: Intelligent text segmentation using [semchunk](https://github.com/umarbutler/semchunk)
-- **Vector Embeddings**: 768-dimensional embeddings via Alibaba-NLP/gte-multilingual-base
-- **Reranked Search**: Two-stage retrieval with cross-encoder reranking
-- **Local Vector Store**: LanceDB OSS for efficient similarity search
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Framework | FastAPI |
-| Vector DB | LanceDB 0.19.0 |
-| Embeddings | Alibaba-NLP/gte-multilingual-base (768-dim) |
-| Reranker | Alibaba-NLP/gte-multilingual-reranker-base |
-| Chunking | semchunk |
-| Python | 3.13+ |
-| Package Manager | uv |
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.13+
-- [uv](https://github.com/astral-sh/uv) package manager
-
-### Installation
+## Run
 
 ```bash
-# Clone the repository
-git clone https://github.com/praveenc/simple-knowledge-base.git
-cd simple-knowledge-base/backend
-
-# Install dependencies
-uv sync
-
-# Activate virtual environment
-source .venv/bin/activate
+uv sync --frozen --extra dev --extra postgres
+uv run uvicorn passageport.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### Running the Server
+Settings are `PP_*` environment variables (or a `backend/.env`); every one is documented in
+[`../.env.example`](../.env.example). The defaults give single-user local mode with SQLite and
+ONNX models downloaded on first use.
+
+## Layout
+
+| Package | Responsibility |
+| --- | --- |
+| `passageport/api/` | Routers, request/response schemas (`schemas.py` is the API contract), middleware, rate limit |
+| `passageport/auth/` | Local mode and accounts mode: Argon2id, hashed server-side sessions, API tokens |
+| `passageport/storage/` | Upload validation and original-file storage (filesystem or database) |
+| `passageport/parsing/` | PDF, DOCX, Markdown and text parsers, run in a killable child process |
+| `passageport/chunking.py` | Page-bounded semantic chunking with exact offsets and deterministic IDs |
+| `passageport/ingest/` | Leased indexing jobs, heartbeat, fencing, atomic index swap |
+| `passageport/search/` | Tokenizer, BM25, exact vector search, reciprocal-rank fusion, reranking, index cache |
+| `passageport/answer/` | Extractive answers and optional, citation-checked LLM answers |
+| `passageport/compare/` | Per-document evidence, alignment, text-computed differences |
+| `passageport/lab/` | Stage-by-stage retrieval inspection |
+| `passageport/evaluation/` | Metrics, datasets, evaluation CLI, bundled report |
+| `passageport/db/` | SQLAlchemy Core schema and ownership-checked reads (SQLite or PostgreSQL) |
+| `passageport/ml/` | Embedder and reranker backends (fastembed/ONNX, sentence-transformers, test hashing embedder) |
+
+## Endpoints
+
+All routes are under `/api`; errors are `{"error": {"code", "message"}}`.
+
+| Area | Routes |
+| --- | --- |
+| System | `GET /health`, `GET /system`, `GET /session` |
+| Auth (accounts mode) | `POST /auth/signup`, `/auth/login`, `/auth/guest`, `/auth/logout`; `GET, POST /auth/tokens`; `DELETE /auth/tokens/{id}` |
+| Collections | `GET, POST /collections`; `GET, PATCH, DELETE /collections/{id}` |
+| Documents | `GET, POST /collections/{id}/documents` (multipart `file`); `GET, PATCH, DELETE /documents/{id}`; `POST /documents/{id}/reindex`; `GET /documents/{id}/file`, `/outline`, `/pages/{n}` |
+| Citations | `GET /chunks/{chunk_id}` |
+| Retrieval | `POST /search`, `/ask`, `/compare`, `/lab/search`; `GET /lab/evaluation` |
+
+Unsafe methods need the header `X-PassagePort-CSRF: 1` unless, in accounts mode, the request
+carries a bearer API token.
+
+## Tests and checks
 
 ```bash
-# Development mode with auto-reload
-uvicorn app.main:app --reload --port 8000
-
-# Production mode
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+PP_EMBEDDING_BACKEND=hashing PP_RERANKER_BACKEND=none uv run pytest
+uv run ruff check . && uv run ruff format --check . && uv run mypy passageport
 ```
 
-The API will be available at `http://localhost:8000`
+Tests use a deterministic hashing embedder, so they need no model download. To run the data-layer
+tests against PostgreSQL, set `PP_TEST_DATABASE_URL` to a disposable database; each test gets its
+own schema, which is dropped afterwards. Tests marked `models` use the real models and are
+deselected by default (`uv run pytest -m models`).
 
-- **Swagger UI**: <http://localhost:8000/docs>
-- **ReDoc**: <http://localhost:8000/redoc>
-
-## API Endpoints
-
-### Health Check
+## Evaluation
 
 ```bash
-GET /health
+uv run python -m passageport.evaluation.run --help
 ```
 
-### Create Index
-
-Create a new named index for storing documents.
-
-```bash
-POST /create
-Content-Type: application/json
-
-{
-  "index_name": "my_documents"
-}
-```
-
-**Response (201 Created):**
-
-```json
-{
-  "index_name": "my_documents",
-  "status": "success",
-  "message": "Index 'my_documents' created successfully"
-}
-```
-
-### List Indexes
-
-List all available indexes.
-
-```bash
-GET /indexes
-```
-
-**Response:**
-
-```json
-{
-  "indexes": ["my_documents", "research_papers", "notes"],
-  "count": 3
-}
-```
-
-### Get Index Record Count
-
-Get the number of records (chunks) in an index.
-
-```bash
-GET /indexes/{index_name}/count
-```
-
-**Response:**
-
-```json
-{
-  "index_name": "my_documents",
-  "record_count": 150
-}
-```
-
-### Delete Index
-
-Permanently delete an index and all its data.
-
-```bash
-DELETE /indexes/{index_name}
-```
-
-**Response:**
-
-```json
-{
-  "index_name": "my_documents",
-  "status": "success",
-  "message": "Index 'my_documents' deleted successfully"
-}
-```
-
-### Encode Single Document (Path)
-
-Add a document to a specific index using a server-side file path.
-
-```bash
-POST /encode_doc
-Content-Type: application/json
-
-{
-  "document_path": "/path/to/document.md",
-  "index_name": "my_documents",
-  "metadata": {}  # optional
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "message": "Successfully encoded document with 5 chunks",
-  "index_name": "my_documents",
-  "document_path": "/path/to/document.md",
-  "chunk_count": 5,
-  "token_counts": [355, 467, 483, 345, 483]
-}
-```
-
-### Upload Document (File Upload)
-
-Upload and encode a document file directly via multipart form data.
-
-```bash
-POST /upload_doc
-Content-Type: multipart/form-data
-
-file: <binary file data>
-index_name: "my_documents"
-```
-
-**Supported file types:** `.md`, `.txt`
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "message": "Successfully encoded document with 5 chunks",
-  "index_name": "my_documents",
-  "filename": "document.md",
-  "chunk_count": 5,
-  "token_counts": [355, 467, 483, 345, 483]
-}
-```
-
-### Batch Encode Directory
-
-Add all matching documents from a directory to a specific index.
-
-```bash
-POST /encode_batch
-Content-Type: application/json
-
-{
-  "directory_path": "/path/to/docs",
-  "index_name": "my_documents",
-  "file_patterns": ["*.md", "*.txt"]  # optional, defaults to common text formats
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "message": "Batch processing started for 65 documents",
-  "index_name": "my_documents",
-  "documents_queued": 65
-}
-```
-
-### Semantic Search
-
-Search for documents in a specific index.
-
-```bash
-POST /query
-Content-Type: application/json
-
-{
-  "query": "How do I create a table in LanceDB?",
-  "index_name": "my_documents",
-  "top_k": 5  # optional, default: 5
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "message": "Found 5 results",
-  "index_name": "my_documents",
-  "results": [
-    {
-      "content": "## Create a table\n\nNext, let's create a Table...",
-      "relevance_score": 0.834,
-      "source_document": "/path/to/doc.md",
-      "chunk_offset": 1346
-    }
-  ],
-  "query": "How do I create a table in LanceDB?"
-}
-```
-
-## Configuration
-
-Configuration is managed via environment variables (prefix: `KB_`) or a `.env` file:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KB_DEBUG` | `false` | Enable debug mode |
-| `KB_LANCEDB_PATH` | `./data/lancedb` | Path to LanceDB storage |
-| `KB_EMBEDDING_MODEL` | `Alibaba-NLP/gte-multilingual-base` | HuggingFace embedding model |
-| `KB_RERANKER_MODEL` | `Alibaba-NLP/gte-multilingual-reranker-base` | HuggingFace reranker model |
-| `KB_MAX_CHUNK_TOKENS` | `512` | Maximum tokens per chunk |
-| `KB_DEFAULT_TOP_K` | `5` | Default number of search results |
-| `KB_VECTOR_SEARCH_LIMIT` | `20` | Candidates to fetch before reranking |
-
-## Project Structure
-
-```text
-backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py          # FastAPI application & endpoints
-│   ├── models.py        # Pydantic models & LanceDB schema
-│   ├── config.py        # Configuration settings
-│   ├── database.py      # LanceDB connection & multi-index operations
-│   ├── exceptions.py    # Custom exception classes
-│   └── services.py      # Document processing & ML models
-├── data/
-│   └── lancedb/         # Vector database storage (indexes as tables)
-├── tests/               # Test suite
-├── pyproject.toml       # Dependencies & project config
-└── uv.lock              # Lock file
-```
-
-## How It Works
-
-1. **Index Management**
-   - Create named indexes to organize different document collections
-   - Each index is stored as a separate LanceDB table
-   - List and manage multiple indexes independently
-
-2. **Document Ingestion**
-   - Specify target index for document storage
-   - Read document content from file
-   - Split into semantic chunks using hierarchical text boundaries
-   - Generate 768-dim embeddings for each chunk
-   - Store chunks + embeddings in the specified index
-
-3. **Semantic Search**
-   - Specify which index to search
-   - Generate embedding for query
-   - Retrieve top-k candidates via vector similarity (L2 distance)
-   - Rerank candidates using cross-encoder model
-   - Return top results sorted by relevance
-
-## Development
-
-### Running Tests
-
-```bash
-# Install dev dependencies
-uv sync --extra dev
-
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=app
-```
-
-### Code Style
-
-The project follows Python best practices with type hints throughout.
-
-## License
-
-MIT
+Methodology, datasets and measured results: [`../docs/SEARCH_EVALUATION.md`](../docs/SEARCH_EVALUATION.md).

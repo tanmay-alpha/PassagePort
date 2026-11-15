@@ -1,0 +1,27 @@
+# Allowlist: the build context contains only what the Dockerfile copies. Everything else
+# (.git, .env files, virtualenvs, node_modules, databases and uploads in data/, evaluation
+# caches, docs, tests, the MCP server) never reaches the Docker daemon or an image layer.
+*
+
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/passageport/**
+!frontend/**
+!scripts/preload_models.py
+!LICENSE
+!NOTICE.md
+
+# Re-exclude generated files inside the allowed directories.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.cache
+**/node_modules
+**/.env
+**/.env.*
+frontend/dist
+frontend/coverage
+frontend/README.md
+**/*.tsbuildinfo

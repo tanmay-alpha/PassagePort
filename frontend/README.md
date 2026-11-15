@@ -1,228 +1,53 @@
-# Knowledge Base Frontend
+# PassagePort web client
 
-A modern React frontend for the Semantic Knowledge Base system, built with **Cloudscape Design System** for a polished, accessible UI.
+React 19, TypeScript and Vite frontend for the PassagePort document workspace. The UI uses
+Radix primitives, Tailwind semantic theme tokens, React Router and TanStack Query. API wire
+types in `src/api/types.ts` mirror `backend/passageport/api/schemas.py`.
 
-## Features
+## Development
 
-- **Semantic Search Interface** - Natural language query input with real-time search
-- **Rich Results Display** - Expandable result cards with relevance scoring
-- **Backend Health Monitoring** - Real-time connection status indicator
-- **Responsive Design** - Works on desktop and mobile devices
-- **Dark Mode Ready** - Cloudscape visual mode support
-
-## Tech Stack
-
-| Technology | Purpose |
-|------------|---------|
-| [React 19](https://react.dev/) | UI framework |
-| [TypeScript](https://www.typescriptlang.org/) | Type safety |
-| [Vite](https://vite.dev/) | Build tool & dev server |
-| [Cloudscape Design](https://cloudscape.design/) | AWS design system components |
-| [pnpm](https://pnpm.io/) | Package manager |
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- pnpm (`npm install -g pnpm`)
-- Backend server running on `http://localhost:8000`
-
-### Installation
+Use Node.js 20.19 or newer and npm:
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Start development server
-pnpm dev
+npm ci
+npm run dev
 ```
 
-The app will be available at `http://localhost:5173`
+Vite serves the app on port 5173 and proxies `/api` unchanged to `http://127.0.0.1:8000`.
+Start the FastAPI backend separately. API calls are same-origin, use cookie sessions and
+send the CSRF header on mutations; no frontend environment variables or secrets are needed.
 
-### Start with Backend
+## Checks and production
 
 ```bash
-# Terminal 1: Start backend
-../scripts/start-backend.sh
-
-# Terminal 2: Start frontend
-pnpm dev
+npm run typecheck
+npm run lint
+npx vitest --run
+npm run build
 ```
 
-## Project Structure
+The production SPA is emitted to `dist/`. Set the backend's `PP_STATIC_DIR` to the absolute
+path of `frontend/dist` to serve it alongside the API, independent of the server's working
+directory. The original PDF viewer and pdf.js are loaded lazily; the worker, fonts, character
+maps and decoders are served locally. Local authentication mode has no sign-in or API tokens;
+account sign-in, guest access and token controls follow the backend's advertised capabilities.
 
-```text
-frontend/
-├── src/
-│   ├── api/
-│   │   ├── client.ts      # API client for backend
-│   │   ├── types.ts       # TypeScript interfaces
-│   │   └── index.ts       # Exports
-│   ├── components/
-│   │   ├── AddKnowledge.tsx     # Document upload form
-│   │   ├── IndexSelector.tsx    # Reusable index dropdown
-│   │   ├── ManageIndexes.tsx    # Index creation/deletion
-│   │   ├── SearchInterface.tsx  # Search input form
-│   │   └── SearchResults.tsx    # Results display
-│   ├── App.tsx            # Main application
-│   └── main.tsx           # Entry point
-├── public/                # Static assets
-├── index.html             # HTML template
-├── vite.config.ts         # Vite configuration
-└── package.json           # Dependencies
-```
+## Source layout
 
-## Components
+- `src/api/`: typed API client, shared queries, mutations and indexing polling.
+- `src/pages/`: onboarding, library, search, ask, compare, Search Lab, viewer, login and settings.
+- `src/components/`: accessible controls, navigation, document filters, passages and viewer.
+- `src/lib/`: URL state, uploads, theme persistence, text offsets and PDF passage matching.
+- `src/test/`: MSW handlers, contract-shaped fixtures, route renderer and viewport helper.
 
-### SearchInterface
+Indexing completion is detected in shared queries so cached retrieval results refresh even
+after leaving the library. Text citations use authoritative page code-point offsets. PDF
+highlights require a unique normalized full-passage match: ambiguous or inexact matches
+show a visible fallback to the exact extracted Text view rather than a misleading highlight.
+Controlled dialogs and sheets trap focus and return it to their opener when closed.
 
-Search input with:
-
-- Controlled input component
-- Enter key submission
-- Loading state handling
-- Cloudscape FormField with validation
-
-### SearchResults
-
-Results display with:
-
-- Vertical list layout for scanability
-- Color-coded relevance badges (green ≥80%, blue ≥60%)
-- Progress bar for visual relevance
-- Expandable content previews
-- Metadata display (chunk offset, content length)
-
-### ManageIndexes
-
-Index management with:
-
-- Tile selector to switch between Create/Delete modes
-- Create new index with name validation
-- "Add Knowledge" button after creation for quick navigation
-- Delete index with confirmation modal
-- Real-time record count display
-
-### AddKnowledge
-
-Document ingestion with:
-
-- Index selector dropdown
-- Single file upload (drag & drop)
-- Batch directory processing
-- Progress tracking with polling
-- Supported formats: `.md`, `.txt`
-
-### IndexSelector
-
-Reusable index dropdown with:
-
-- Auto-loading of available indexes
-- Record count display per index
-- Filtering/search capability
-- Refresh trigger for external updates
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_URL` | `http://localhost:8000` | Backend API URL |
-
-### Vite Proxy
-
-The dev server proxies `/api/*` requests to the backend:
-
-```typescript
-// vite.config.ts
-server: {
-  proxy: {
-    '/api': {
-      target: 'http://localhost:8000',
-      changeOrigin: true,
-      rewrite: (path) => path.replace(/^\/api/, ''),
-    },
-  },
-}
-```
-
-## Scripts
-
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Start development server |
-| `pnpm build` | Build for production |
-| `pnpm preview` | Preview production build |
-| `pnpm lint` | Run ESLint |
-
-## Cloudscape Guidelines
-
-This project follows [Cloudscape Design System](https://cloudscape.design/) patterns:
-
-1. **Design tokens** - No hard-coded colors or spacing
-2. **Controlled components** - All form inputs use React state
-3. **Event pattern** - `({ detail }) => ...` destructuring
-4. **Composition** - Complex UIs built from simple components
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Tests exercise real routes and providers with MSW at the API boundary, including indexing
+transitions, exact Unicode citation offsets, authentication failures and successful safe
+redirects, guest access, token creation/copy/revocation, persisted themes, keyboard shortcuts
+and mobile navigation. The multipart test harness retains browser form construction
+for React while using Node-compatible multipart bodies for intercepted uploads.

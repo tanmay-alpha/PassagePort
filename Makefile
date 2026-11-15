@@ -1,78 +1,111 @@
-# Knowledge Base Development Commands
-# Usage: make <target>
+# PassagePort development commands. Run `make help` for the list.
 #
-# Run `make help` for available commands
+# Recipes are single `cd dir && command` lines without shell-specific syntax, so they work with
+# GNU Make under sh (Linux, macOS, Git Bash) and under cmd.exe. On Windows without Make, run
+# the commands shown here directly; `scripts/dev.ps1` replaces `make dev`.
 
-.PHONY: help dev backend frontend install test clean mcp-build mcp-dev mcp-inspect
-
-# Default target
 .DEFAULT_GOAL := help
 
-# Colors
-BLUE := \033[0;34m
-GREEN := \033[0;32m
-CYAN := \033[0;36m
-NC := \033[0m
+.PHONY: help install dev backend frontend test test-backend test-frontend test-mcp e2e \
+        lint format typecheck eval docker-build docker-up docker-down clean
 
-help: ## Show this help message
+# The backend reads `.env` from the repository root when it exists (same file docker compose uses).
+ENV_FILE := $(if $(wildcard .env),--env-file ../.env,)
+
+# Datasets for `make eval`, e.g. `make eval EVAL_DATASETS=mini`.
+EVAL_DATASETS ?= mini scifact
+
+ifeq ($(OS),Windows_NT)
+DEV_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1
+else
+DEV_SCRIPT := bash scripts/dev.sh
+endif
+
+help:
+	@echo "PassagePort"
 	@echo ""
-	@echo "Knowledge Base - Development Commands"
+	@echo "  make install        Install backend (uv), frontend and MCP server dependencies"
+	@echo "  make dev            Backend with reload on 127.0.0.1:8000 + Vite on 127.0.0.1:5173"
+	@echo "  make backend        Backend only (reload, 127.0.0.1:8000)"
+	@echo "  make frontend       Vite dev server only (proxies /api to 127.0.0.1:8000)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-15s$(NC) %s\n", $$1, $$2}'
+	@echo "  make test           Backend, frontend and MCP server unit tests"
+	@echo "  make test-backend   pytest (hashing embedder, no model download)"
+	@echo "  make test-frontend  vitest"
+	@echo "  make test-mcp       MCP server tests"
+	@echo "  make e2e            Build the frontend and run the Playwright suite"
+	@echo "  make lint           ruff check + ruff format --check + eslint"
+	@echo "  make format         Apply ruff formatting and safe fixes"
+	@echo "  make typecheck      mypy + tsc (frontend, MCP server)"
+	@echo "  make eval           Run the retrieval evaluation (downloads models and datasets)"
 	@echo ""
+	@echo "  make docker-build   Build the image (models preloaded)"
+	@echo "  make docker-up      Start with docker compose on http://localhost:8000"
+	@echo "  make docker-down    Stop the compose stack (volumes are kept)"
+	@echo "  make clean          Remove build output and tool caches (never data or .env)"
 
-dev: ## Start both frontend and backend (recommended)
-	@./scripts/dev.sh
+install:
+	cd backend && uv sync --extra dev --extra postgres
+	cd frontend && npm ci
+	cd mcp-server && npm ci
 
-backend: ## Start only the backend server
-	@./scripts/start-backend.sh
+dev:
+	$(DEV_SCRIPT)
 
-frontend: ## Start only the frontend server
-	@cd frontend && npm run dev
+backend:
+	cd backend && uv run uvicorn passageport.main:app --reload --reload-dir passageport --host 127.0.0.1 --port 8000 $(ENV_FILE)
 
-install: ## Install all dependencies
-	@echo "$(BLUE)[backend]$(NC) Installing Python dependencies..."
-	@cd backend && uv sync
-	@echo "$(CYAN)[frontend]$(NC) Installing Node dependencies..."
-	@cd frontend && npm install
-	@echo "$(CYAN)[mcp-server]$(NC) Installing Node dependencies..."
-	@cd mcp-server && npm install
-	@echo "$(GREEN)[done]$(NC) All dependencies installed"
+frontend:
+	cd frontend && npm run dev
 
-test: ## Run backend tests
-	@cd backend && source .venv/bin/activate && pytest
+test: test-backend test-frontend test-mcp
 
-test-verbose: ## Run backend tests with verbose output
-	@cd backend && source .venv/bin/activate && pytest -v
+# Tests must never download models, whatever the developer's environment or .env says.
+test-backend: export PP_EMBEDDING_BACKEND := hashing
+test-backend: export PP_RERANKER_BACKEND := none
+test-backend:
+	cd backend && uv run pytest
 
-lint: ## Run linters on backend and frontend
-	@echo "$(BLUE)[backend]$(NC) Running ruff..."
-	@cd backend && source .venv/bin/activate && ruff format && ruff check --fix
-	@echo "$(CYAN)[frontend]$(NC) Running eslint..."
-	@cd frontend && npm run lint
-	@echo "$(CYAN)[mcp-server]$(NC) Running typecheck..."
-	@cd mcp-server && npm run typecheck
-	@echo "$(GREEN)[done]$(NC) Linting complete"
+test-frontend:
+	cd frontend && npm test -- --run
 
-clean: ## Clean up generated files and caches
-	@echo "Cleaning up..."
-	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
-	@find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
-	@rm -rf backend/data/lancedb/* 2>/dev/null || true
-	@rm -rf mcp-server/dist 2>/dev/null || true
-	@echo "$(GREEN)[done]$(NC) Cleanup complete"
+test-mcp:
+	cd mcp-server && npm test
 
-# MCP Server targets
-mcp-build: ## Build the MCP server
-	@echo "$(CYAN)[mcp-server]$(NC) Building..."
-	@cd mcp-server && npm run build
-	@echo "$(GREEN)[done]$(NC) MCP server built"
+e2e:
+	cd frontend && npm run build
+	cd e2e && npm ci
+	cd e2e && npx playwright install chromium firefox
+	cd e2e && npx playwright test
 
-mcp-dev: ## Run MCP server in development mode
-	@echo "$(CYAN)[mcp-server]$(NC) Starting in dev mode..."
-	@cd mcp-server && npm run dev
+lint:
+	cd backend && uv run ruff check .
+	cd backend && uv run ruff format --check .
+	cd frontend && npm run lint
 
-mcp-inspect: ## Test MCP server with MCP Inspector
-	@echo "$(CYAN)[mcp-server]$(NC) Starting MCP Inspector..."
-	@cd mcp-server && npm run inspect:dev
+format:
+	cd backend && uv run ruff format .
+	cd backend && uv run ruff check --fix .
+
+typecheck:
+	cd backend && uv run mypy passageport
+	cd frontend && npm run typecheck
+	cd mcp-server && npm run typecheck
+
+# Downloads models and datasets (cached in eval/.cache); not part of CI. Writes the raw numbers to
+# eval/results/ and regenerates the report that Search Lab displays. Both files are committed.
+eval:
+	cd backend && uv run python -m passageport.evaluation.run evaluate --datasets $(EVAL_DATASETS) --out ../eval/results/default.json
+	cd backend && uv run python -m passageport.evaluation.run report --inputs ../eval/results/default.json --out passageport/evaluation/report.json
+
+docker-build:
+	docker build -t passageport:local .
+
+docker-up:
+	docker compose up --build --detach
+
+docker-down:
+	docker compose down
+
+clean:
+	node scripts/clean.mjs
