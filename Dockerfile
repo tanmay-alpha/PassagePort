@@ -6,7 +6,7 @@
 #   docker build --build-arg PRELOAD_MODELS=0 -t ...    # smaller image, models download on first use
 
 # ---------------------------------------------------------------------------- frontend build
-FROM node:24-slim AS frontend
+FROM node:25-slim AS frontend
 
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
